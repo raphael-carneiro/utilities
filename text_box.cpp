@@ -70,8 +70,8 @@ main(int argc, char **argv)
 		cout << "Line type must be 8 (8-connected line), 4 (4-connected line) or 16 (antialiased line)\n" << "Usage:\n" << argv[0] << usage;
 		exit(0);
 	}
-	string text = "";
-	for (int i = 16; i < argc; i++) {
+	string text = argv[16];
+	for (int i = 17; i < argc; i++) {
 		text += " " + string(argv[i]);
 	}
 	cv::Point p;
@@ -82,9 +82,9 @@ main(int argc, char **argv)
 
 	Size text_size = getTextSize(text, font, scale, thickness, &baseLine);
 	if (alignment == 1)
-		p.x = x_right - text_size.width + 4;
+		p.x = x_right - text_size.width;
 	else if (alignment == 0)
-		p.x = (x_left + x_right)/2 - text_size.width/2 + 2;
+		p.x = (x_left + x_right)/2 - text_size.width/2;
 	else
 		p.x = x_left;
 	if (location_top)
@@ -93,8 +93,8 @@ main(int argc, char **argv)
 		p.y = img.rows - y_bottom + text_size.height + 4;
 
 	// Draw the text box
-	rectangle(img, p, p + cv::Point(text_size.width - 4, - text_size.height - 3), box_color, CV_FILLED);
-	putText(img, text, p + cv::Point(-6, -1), font, scale, font_color, thickness, line);
+	rectangle(img, p, p + cv::Point(text_size.width, - text_size.height - 3), box_color, CV_FILLED);
+	putText(img, text, p + cv::Point(0, -1), font, scale, font_color, thickness, line);
 
 	imshow(window_name, img);
 	cout << "\nPress \"Esc\" key to continue...\n";
