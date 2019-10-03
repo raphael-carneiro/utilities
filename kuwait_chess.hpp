@@ -8,25 +8,44 @@
 #ifndef KUWAIT_CHESS_HPP_
 #define KUWAIT_CHESS_HPP_
 
-#define	EMPTY		NULL
-#define PAWN		'P'
-#define KNIGHT		'N'
-#define BISHOP		'B'
-#define ROOK		'R'
-#define QUEEN		'Q'
-#define KING		'K'
+#define WHITE			0
+#define BLACK			1
+#define	EMPTY			' '
+#define WHITE_PAWN		'P'
+#define WHITE_KNIGHT	'N'
+#define WHITE_BISHOP	'B'
+#define WHITE_ROOK		'R'
+#define WHITE_QUEEN		'Q'
+#define WHITE_KING		'K'
+#define BLACK_PAWN		'p'
+#define BLACK_KNIGHT	'n'
+#define BLACK_BISHOP	'b'
+#define BLACK_ROOK		'r'
+#define BLACK_QUEEN		'q'
+#define BLACK_KING		'k'
+#define PIECES			"PNBRQKpnbrqk"
+#define WHITE_PIECES	"PNBRQK"
+#define BLACK_PIECES	"pnbrqk"
+#define RANK_SEPARATOR	'/'
 
-#define WHITE(x)		toupper(x)
-#define BLACK(x)		tolower(x)
-#define IS_WHITE(x)		isupper(x)
-#define IS_BLACK(x)		islower(x)
-#define IS_EMPTY(x)		(x == EMPTY)
-#define IS_PAWN(x)		(toupper(x) == PAWN)
-#define IS_KNIGHT(x)	(toupper(x) == KNIGHT)
-#define IS_BISHOP(x)	(toupper(x) == BISHOP)
-#define IS_ROOK(x)		(toupper(x) == ROOK)
-#define IS_QUEEN(x)		(toupper(x) == QUEEN)
-#define IS_KING(x)		(toupper(x) == KING)
+#define IS_PIECE(piece)		(strchr(PIECES,       piece) != NULL)
+#define IS_WHITE(piece)		(strchr(WHITE_PIECES, piece) != NULL)
+#define IS_BLACK(piece)		(strchr(BLACK_PIECES, piece) != NULL)
+#define IS_EMPTY(piece)		(piece == EMPTY)
+#define IS_PAWN(piece)		(piece == WHITE_PAWN   || piece == BLACK_PAWN)
+#define IS_KNIGHT(piece)	(piece == WHITE_KNIGHT || piece == BLACK_KNIGHT)
+#define IS_BISHOP(piece)	(piece == WHITE_BISHOP || piece == BLACK_BISHOP)
+#define IS_ROOK(piece)		(piece == WHITE_ROOK   || piece == BLACK_ROOK)
+#define IS_QUEEN(piece)		(piece == WHITE_QUEEN  || piece == BLACK_QUEEN)
+#define IS_KING(piece)		(piece == WHITE_KING   || piece == BLACK_KING)
+
+#define FILE(square)		('a' + (square % 8)) // files are labeled from 'a' to 'h' left to right
+#define RANK(square)		('8' - (square / 8)) // ranks are numbered bottom-up
+#define SQUARE(file, rank)	((file - 'a') + ('8' - rank) * 8)
+
+#define NO_SQUARE				-1
+#define IS_BLACK_SQUARE(square)	(((square / 8) % 2) ^ ((square % 8) % 2)) // (rank even and file odd)  or (rank odd and file even)
+#define IS_WHITE_SQUARE(square)	!IS_BLACK_SQUARE(square) 				  // (rank even and file even) or (rank odd and file odd)
 
 struct piece_move
 {
@@ -43,12 +62,20 @@ struct piece_move
 	bool draw;
 };
 
-#define FILE_CHAR(x)		('a' + (x % 8))
-#define RANK_DIGIT(x)		('8' - (x / 8))
-
-
-
-
+struct game_state
+{
+	char chessboard[64]; // squares are numbered from left to right top-down
+	piece_move *last_move;
+	int  side_to_move; // (next move) 0 = white, 1 = black
+	bool white_castling_short_ability; // K and Rh have never moved and Rh was not captured
+	bool white_castling_long_ability;  // K and Ra have never moved and Ra was not captured
+	bool black_castling_short_ability;
+	bool black_castling_long_ability;
+	int  en_passant_target_square; // skipped square from the last move (pawn)
+	int  half_move_clock; // counter for 50 move draw rule (without capture or pawn move)
+	int  full_move_counter; // (next move)
+	game_state *previous;
+};
 
 
 #endif /* KUWAIT_CHESS_HPP_ */
