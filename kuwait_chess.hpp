@@ -8,6 +8,9 @@
 #ifndef KUWAIT_CHESS_HPP_
 #define KUWAIT_CHESS_HPP_
 
+#define CHESSBOARD_SQUARES	64
+#define MAX_LEGAL_MOVES		27
+
 #define WHITE			0
 #define BLACK			1
 #define	EMPTY			' '
@@ -28,6 +31,7 @@
 #define BLACK_PIECES	"pnbrqk"
 #define RANK_SEPARATOR	'/'
 
+#define COLOR(piece)		(islower(piece))
 #define IS_PIECE(piece)		(strchr(PIECES,       piece) != NULL)
 #define IS_WHITE(piece)		(strchr(WHITE_PIECES, piece) != NULL)
 #define IS_BLACK(piece)		(strchr(BLACK_PIECES, piece) != NULL)
