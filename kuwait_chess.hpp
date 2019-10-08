@@ -17,7 +17,7 @@
 #define NUM_ROOKS		2
 #define NUM_QUEENS		1
 #define NUM_KINGS		1
-#define MAX_LEGAL_MOVES	27 // A queen on a central square
+#define MAX_LEGAL_MOVES	27 // Legal moves for a queen on a central square of an empty chessboard
 
 #define WHITE			0
 #define BLACK			1
@@ -34,22 +34,21 @@
 #define BLACK_ROOK		'r'
 #define BLACK_QUEEN		'q'
 #define BLACK_KING		'k'
-#define PIECES			"PNBRQKpnbrqk"
 #define WHITE_PIECES	"PNBRQK"
 #define BLACK_PIECES	"pnbrqk"
 #define RANK_SEPARATOR	'/'
 
 #define COLOR(piece)		(islower(piece) != 0)
-#define IS_PIECE(piece)		(strchr(PIECES,       piece) != NULL)
-#define IS_WHITE(piece)		(strchr(WHITE_PIECES, piece) != NULL)
-#define IS_BLACK(piece)		(strchr(BLACK_PIECES, piece) != NULL)
-#define IS_EMPTY(piece)		(piece == EMPTY)
-#define IS_PAWN(piece)		(piece == WHITE_PAWN   || piece == BLACK_PAWN)
-#define IS_KNIGHT(piece)	(piece == WHITE_KNIGHT || piece == BLACK_KNIGHT)
-#define IS_BISHOP(piece)	(piece == WHITE_BISHOP || piece == BLACK_BISHOP)
-#define IS_ROOK(piece)		(piece == WHITE_ROOK   || piece == BLACK_ROOK)
-#define IS_QUEEN(piece)		(piece == WHITE_QUEEN  || piece == BLACK_QUEEN)
-#define IS_KING(piece)		(piece == WHITE_KING   || piece == BLACK_KING)
+#define IS_WHITE(piece)		(strchr(WHITE_PIECES, (piece)) != NULL)
+#define IS_BLACK(piece)		(strchr(BLACK_PIECES, (piece)) != NULL)
+#define IS_PIECE(piece)		(IS_WHITE(piece) || IS_BLACK(piece))
+#define IS_EMPTY(piece)		((piece) == EMPTY)
+#define IS_PAWN(piece)		((piece) == WHITE_PAWN   || (piece) == BLACK_PAWN)
+#define IS_KNIGHT(piece)	((piece) == WHITE_KNIGHT || (piece) == BLACK_KNIGHT)
+#define IS_BISHOP(piece)	((piece) == WHITE_BISHOP || (piece) == BLACK_BISHOP)
+#define IS_ROOK(piece)		((piece) == WHITE_ROOK   || (piece) == BLACK_ROOK)
+#define IS_QUEEN(piece)		((piece) == WHITE_QUEEN  || (piece) == BLACK_QUEEN)
+#define IS_KING(piece)		((piece) == WHITE_KING   || (piece) == BLACK_KING)
 
 #define FILE(square)		('a' + ((square) % NUM_FILES)) // files are labeled left to right from 'a' to 'h'
 #define RANK(square)		('8' - ((square) / NUM_FILES)) // ranks are numbered bottom-up from '1' to '8'
