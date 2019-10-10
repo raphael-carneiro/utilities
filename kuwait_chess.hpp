@@ -8,19 +8,19 @@
 #ifndef KUWAIT_CHESS_HPP_
 #define KUWAIT_CHESS_HPP_
 
-#define NUM_FILES		8
-#define NUM_RANKS		8
-#define NUM_SQUARES		(NUM_FILES * NUM_RANKS)
-#define NUM_PAWNS		8
-#define NUM_KNIGHTS		2
-#define NUM_BISHOPS		2
-#define NUM_ROOKS		2
-#define NUM_QUEENS		1
-#define NUM_KINGS		1
+#define NUM_FILES		 8
+#define NUM_RANKS		 8
+#define NUM_SQUARES		64 // (NUM_FILES * NUM_RANKS)
+#define NUM_PAWNS		 8
+#define NUM_KNIGHTS		 2
+#define NUM_BISHOPS		 2
+#define NUM_ROOKS		 2
+#define NUM_QUEENS		 1
+#define NUM_KINGS		 1
 #define MAX_LEGAL_MOVES	27 // Legal moves for a queen on a central square of an empty chessboard
 
-#define WHITE			0
-#define BLACK			1
+#define WHITE			 0
+#define BLACK			 1
 #define	EMPTY			' '
 #define WHITE_PAWN		'P'
 #define WHITE_KNIGHT	'N'
@@ -58,6 +58,22 @@
 #define IS_BLACK_SQUARE(square)	((((square) / NUM_FILES) % 2) ^ (((square) % NUM_FILES) % 2)) // (rank even and file odd)  or (rank odd and file even)
 #define IS_WHITE_SQUARE(square)	!IS_BLACK_SQUARE(square) 				  					  // (rank even and file even) or (rank odd and file odd)
 
+#define SET_FINISH(bit)				(bit)
+#define SET_GOAL_ACHIEVED(bit)		((bit) <<  1)
+#define SET_MATE(bit)				((bit) <<  2)
+#define SET_DRAW(bit)				((bit) <<  3)
+#define SET_CHESSBOARD(bit)			((bit) <<  4)
+#define SET_MAX_MOVES(bit)			((bit) <<  5)
+#define SET_MOVE_COUNT(num)			((num) << 16)
+#define FLAGS(result)				( (result) & 0xFF)
+#define FINISH(result)				( (result) & 0x01)
+#define GOAL_ACHIEVED(result)		(((result) & 0x02) >> 1)
+#define MATE(result)				(((result) & 0x04) >> 2)
+#define DRAW(result)				(((result) & 0x08) >> 3)
+#define CHESSBOARD(result)			(((result) & 0x10) >> 4)
+#define MAX_MOVES(result)			(((result) & 0x20) >> 5)
+#define MOVE_COUNT(result)			(((result) & 0xFFFF0000) >> 16)
+
 struct piece_move
 {
 	char moving_piece;
@@ -75,7 +91,7 @@ struct piece_move
 
 struct game_state
 {
-	char chessboard[64]; // squares are numbered from left to right top-down
+	char chessboard[NUM_SQUARES]; // squares are numbered from left to right top-down
 	piece_move *last_move;
 	int  side_to_move; // (next move) 0 = white, 1 = black
 	bool white_castling_short_ability; // K and Rh have never moved and Rh was not captured

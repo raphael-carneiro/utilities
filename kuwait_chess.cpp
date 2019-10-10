@@ -29,6 +29,8 @@ bool goal_is_draw = false;
 bool goal_is_chessboard = false;
 char const *initial_fen = "";
 char const *final_fen = "";
+game_state initial_game;
+int  initial_side_to_move = WHITE;
 char initial_chessboard[NUM_SQUARES];
 char final_chessboard[NUM_SQUARES];
 long variants_analyzed  = 0;
@@ -160,7 +162,7 @@ fen_piece_placement(char *chessboard, char const *fen_text)
 		if (square >= NUM_SQUARES)
 			return error_fen(2, "FEN text too long", fen_text, c);
 
-		if (*c >= '1' && *c <= '8')
+		if (*c >= '1' && *c <= (NUM_FILES + '0'))
 		{
 			if (file_count > 0 && isdigit(*(c - 1)))
 				return error_fen(1, "Invalid FEN syntax", fen_text, c);
@@ -206,9 +208,11 @@ fen_piece_placement(char *chessboard, char const *fen_text)
 void
 print_chessboard(char *chessboard)
 {
+	printf("\n");
+
 	for (int r = 0; r < NUM_RANKS; r++)
 	{
-		printf("%d ", (8 - r));
+		printf("%d ", (NUM_RANKS - r));
 		for (int f = 0; f < NUM_FILES; f++)
 		{
 			int square = r * NUM_FILES + f;
@@ -218,7 +222,11 @@ print_chessboard(char *chessboard)
 		}
 		printf("\n");
 	}
-	printf("  a b c d e f g h\n");
+
+	printf("  ");
+	for (int f = 0; f < NUM_FILES; f++)
+		printf("%c ", 'a' + f);
+	printf("\n\n");
 }
 
 
@@ -248,7 +256,7 @@ get_moves(piece_move *moves, int *index, char *chessboard, char file, char rank,
 
 	for (int step = 0; step < max_steps; step++)
 	{
-		if (f < 'a' || f > 'h' || r < '1' || r > '8')
+		if (f < 'a' || f > ('a' + NUM_FILES - 1) || r < '1' || r > ('1' + NUM_RANKS - 1))
 			break;
 
 		int square = SQUARE(f, r);
@@ -279,7 +287,7 @@ get_castling(piece_move *moves, int *index, char *chessboard, int color, char ca
 		return;
 
 	char file = 'e';
-	char rank = (color == WHITE) ? '1' : '8';
+	char rank = (color == WHITE) ? '1' : ('1' + NUM_RANKS - 1);
 	int first_empty_square = IS_KING(castling_side) ? SQUARE(file + 1, rank) : SQUARE(file - 3, rank);
 	int last_empty_square  = IS_KING(castling_side) ? SQUARE(file + 2, rank) : SQUARE(file - 1, rank);
 
@@ -293,15 +301,12 @@ get_castling(piece_move *moves, int *index, char *chessboard, int color, char ca
 
 
 void
-get_move_pawn_forward(piece_move *moves, int index_base, int *index, char *chessboard, char file, char rank)
+get_move_pawn_forward(piece_move *moves, int index_base, int *index, char *chessboard, char file, char rank, int step = 1)
 {
 	int color = COLOR(chessboard[SQUARE(file, rank)]);
-	int rank_step = (color == WHITE) ? 1 : -1;
-	char initial_rank = (color == WHITE) ? '2' : '7';
-
+	int rank_step = (color == WHITE) ? step : -step;
+	char initial_rank = (color == WHITE) ? ('1' + 1) : ('1' + NUM_RANKS - 2);
 	char r = rank + rank_step;
-	if (r < '1' || r > '8')
-		return;
 
 	int square = SQUARE(file, r);
 	if (chessboard[square] == EMPTY)
@@ -309,16 +314,8 @@ get_move_pawn_forward(piece_move *moves, int index_base, int *index, char *chess
 		moves[index_base + (*index)].to_square = square;
 		(*index)++;
 
-		r += rank_step;
-		if (r < '1' || r > '8')
-			return;
-
-		square = SQUARE(file, r);
-		if (chessboard[square] == EMPTY && rank == initial_rank)
-		{
-			moves[index_base + (*index)].to_square = square;
-			(*index)++;
-		}
+		if (rank == initial_rank && step == 1)
+			get_move_pawn_forward(moves, index_base, index, chessboard, file, rank, 2);
 	}
 }
 
@@ -328,25 +325,17 @@ get_move_pawn_capture(piece_move *moves, int index_base, int *index, char *chess
 {
 	int color = COLOR(chessboard[SQUARE(file, rank)]);
 	int rank_step = (color == WHITE) ? 1 : -1;
-
 	char f = file + file_step;
 	char r = rank + rank_step;
-	if (f < 'a' || f > 'h' || r < '1' || r > '8')
+	if (f < 'a' || f > ('a' + NUM_FILES - 1))
 		return;
 
 	int square = SQUARE(f, r);
-	if (chessboard[square] != EMPTY && COLOR(chessboard[square]) != color)
+	if ((chessboard[square] != EMPTY && COLOR(chessboard[square]) != color) || (square == en_passant_target_square))
 	{
 		moves[index_base + (*index)].to_square = square;
 		moves[index_base + (*index)].capture = true;
-		(*index)++;
-	}
-
-	if (square == en_passant_target_square)
-	{
-		moves[index_base + (*index)].to_square = square;
-		moves[index_base + (*index)].capture = true;
-		moves[index_base + (*index)].en_passant = true;
+		moves[index_base + (*index)].en_passant = (square == en_passant_target_square);
 		(*index)++;
 	}
 }
@@ -384,28 +373,28 @@ get_legal_moves(piece_move *legal_moves, game_state *game, char piece, int squar
 			break;
 
 		case WHITE_QUEEN:  case BLACK_QUEEN:
-			get_moves(legal_moves, &i, cb, file, rank,  0,  1, 7);
-			get_moves(legal_moves, &i, cb, file, rank,  1,  1, 7);
-			get_moves(legal_moves, &i, cb, file, rank,  1,  0, 7);
-			get_moves(legal_moves, &i, cb, file, rank,  1, -1, 7);
-			get_moves(legal_moves, &i, cb, file, rank,  0, -1, 7);
-			get_moves(legal_moves, &i, cb, file, rank, -1, -1, 7);
-			get_moves(legal_moves, &i, cb, file, rank, -1,  0, 7);
-			get_moves(legal_moves, &i, cb, file, rank, -1,  1, 7);
+			get_moves(legal_moves, &i, cb, file, rank,  0,  1, NUM_RANKS - 1);
+			get_moves(legal_moves, &i, cb, file, rank,  1,  1, NUM_RANKS - 1);
+			get_moves(legal_moves, &i, cb, file, rank,  1,  0, NUM_FILES - 1);
+			get_moves(legal_moves, &i, cb, file, rank,  1, -1, NUM_RANKS - 1);
+			get_moves(legal_moves, &i, cb, file, rank,  0, -1, NUM_RANKS - 1);
+			get_moves(legal_moves, &i, cb, file, rank, -1, -1, NUM_RANKS - 1);
+			get_moves(legal_moves, &i, cb, file, rank, -1,  0, NUM_FILES - 1);
+			get_moves(legal_moves, &i, cb, file, rank, -1,  1, NUM_RANKS - 1);
 			break;
 
 		case WHITE_ROOK:   case BLACK_ROOK:
-			get_moves(legal_moves, &i, cb, file, rank,  0,  1, 7);
-			get_moves(legal_moves, &i, cb, file, rank,  1,  0, 7);
-			get_moves(legal_moves, &i, cb, file, rank,  0, -1, 7);
-			get_moves(legal_moves, &i, cb, file, rank, -1,  0, 7);
+			get_moves(legal_moves, &i, cb, file, rank,  0,  1, NUM_RANKS - 1);
+			get_moves(legal_moves, &i, cb, file, rank,  1,  0, NUM_FILES - 1);
+			get_moves(legal_moves, &i, cb, file, rank,  0, -1, NUM_RANKS - 1);
+			get_moves(legal_moves, &i, cb, file, rank, -1,  0, NUM_FILES - 1);
 			break;
 
 		case WHITE_BISHOP: case BLACK_BISHOP:
-			get_moves(legal_moves, &i, cb, file, rank,  1,  1, 7);
-			get_moves(legal_moves, &i, cb, file, rank,  1, -1, 7);
-			get_moves(legal_moves, &i, cb, file, rank, -1, -1, 7);
-			get_moves(legal_moves, &i, cb, file, rank, -1,  1, 7);
+			get_moves(legal_moves, &i, cb, file, rank,  1,  1, NUM_RANKS - 1);
+			get_moves(legal_moves, &i, cb, file, rank,  1, -1, NUM_RANKS - 1);
+			get_moves(legal_moves, &i, cb, file, rank, -1, -1, NUM_RANKS - 1);
+			get_moves(legal_moves, &i, cb, file, rank, -1,  1, NUM_RANKS - 1);
 			break;
 
 		case WHITE_KNIGHT: case BLACK_KNIGHT:
@@ -424,7 +413,7 @@ get_legal_moves(piece_move *legal_moves, game_state *game, char piece, int squar
 			get_move_pawn_capture(legal_moves, i, &j, cb, file, rank,  1, game->en_passant_target_square);
 			get_move_pawn_capture(legal_moves, i, &j, cb, file, rank, -1, game->en_passant_target_square);
 
-			if ((color == WHITE && rank == '7') || (color == BLACK && rank == '2')) // pawn promotion
+			if ((color == WHITE && rank == ('1' + NUM_RANKS - 2)) || (color == BLACK && rank == '2')) // pawn promotion
 			{
 				for (int k = 0; k < j; k++)
 				{
@@ -489,26 +478,23 @@ update_chessboard(char *chessboard, char *previous_chessboard, piece_move *move)
 void
 update_state(game_state *game)
 {
-	if (game->chessboard[SQUARE('e','1')] != WHITE_KING)
-		game->white_castling_short_ability = game->white_castling_long_ability = false;
-	if (game->chessboard[SQUARE('h','1')] != WHITE_ROOK)
-		game->white_castling_short_ability = false;
-	if (game->chessboard[SQUARE('a','1')] != WHITE_ROOK)
-		game->white_castling_long_ability = false;
-	if (game->chessboard[SQUARE('e','8')] != BLACK_KING)
-		game->black_castling_short_ability = game->black_castling_long_ability = false;
-	if (game->chessboard[SQUARE('h','8')] != BLACK_ROOK)
-		game->black_castling_short_ability = false;
-	if (game->chessboard[SQUARE('a','8')] != BLACK_ROOK)
-		game->black_castling_long_ability = false;
+	game->white_castling_short_ability  =
+	game->white_castling_long_ability  &= (game->chessboard[SQUARE('e','1')] == WHITE_KING);
+	game->white_castling_short_ability &= (game->chessboard[SQUARE('h','1')] == WHITE_ROOK);
+	game->white_castling_long_ability  &= (game->chessboard[SQUARE('a','1')] == WHITE_ROOK);
+	game->black_castling_short_ability  =
+	game->black_castling_long_ability  &= (game->chessboard[SQUARE('e', ('1' + NUM_RANKS - 1))] == BLACK_KING);
+	game->black_castling_short_ability &= (game->chessboard[SQUARE('h', ('1' + NUM_RANKS - 1))] == BLACK_ROOK);
+	game->black_castling_long_ability  &= (game->chessboard[SQUARE('a', ('1' + NUM_RANKS - 1))] == BLACK_ROOK);
 
 	if (game->last_move)
 	{
+		game->en_passant_target_square = NO_SQUARE;
 		if (IS_PAWN(game->last_move->moving_piece))
 			if (RANK(game->last_move->from_square) == '2' && RANK(game->last_move->to_square) == '4')
 				game->en_passant_target_square = SQUARE(FILE(game->last_move->from_square), '3');
-			else if (RANK(game->last_move->from_square) == '7' && RANK(game->last_move->to_square) == '5')
-				game->en_passant_target_square = SQUARE(FILE(game->last_move->from_square), '6');
+			else if (RANK(game->last_move->from_square) == ('1' + NUM_RANKS - 2) && RANK(game->last_move->to_square) == ('1' + NUM_RANKS - 4))
+				game->en_passant_target_square = SQUARE(FILE(game->last_move->from_square), ('1' + NUM_RANKS - 3));
 
 		game->half_move_clock++;
 		if (IS_PAWN(game->last_move->moving_piece) || game->last_move->capture)
@@ -518,18 +504,18 @@ update_state(game_state *game)
 
 
 void
-default_game_state(game_state *game, char *chessboard)
+set_game_state(game_state *game, char *chessboard = initial_chessboard, int side_to_move = WHITE, int full_move_counter = 1)
 {
 	memcpy(game->chessboard, chessboard, NUM_SQUARES);
 	game->last_move = NULL;
-	game->side_to_move = WHITE;
+	game->side_to_move = side_to_move;
 	game->white_castling_short_ability = true;
 	game->white_castling_long_ability  = true;
 	game->black_castling_short_ability = true;
 	game->black_castling_long_ability  = true;
 	game->en_passant_target_square = NO_SQUARE;
 	game->half_move_clock = 0;
-	game->full_move_counter = 1;
+	game->full_move_counter = full_move_counter;
 	game->previous = NULL;
 
 	update_state(game);
@@ -544,7 +530,7 @@ can_reach(char *chessboard, char from_file, char from_rank, int to_square, int f
 
 	for (int step = 0; step < max_steps; step++)
 	{
-		if (f < 'a' || f > 'h' || r < '1' || r > '8')
+		if (f < 'a' || f > ('a' + NUM_FILES - 1) || r < '1' || r > ('1' + NUM_RANKS - 1))
 			break;
 
 		int square = SQUARE(f, r);
@@ -647,6 +633,7 @@ square_is_attacked(char *chessboard, int color, int square)
 	for (int attacking_square = 0; attacking_square < NUM_SQUARES; attacking_square++)
 	{
 		char piece = chessboard[attacking_square];
+
 		if ((color == WHITE && !IS_BLACK(piece)) || (color == BLACK && !IS_WHITE(piece)))
 			continue;
 
@@ -668,11 +655,8 @@ castling_under_attack(char *chessboard, piece_move *move)
 	char file = 'e';
 	char rank = (color == WHITE) ? '1' : '8';
 	int king_initial_square = SQUARE(file, rank);
-	if (move->from_square != king_initial_square)
-		return false;
-
 	int file_step = (move->to_square - move->from_square);
-	if (abs(file_step) != 2)
+	if ((move->from_square != king_initial_square) || (abs(file_step) != 2))
 		return false;
 
 	if (square_is_attacked(chessboard, color, king_initial_square))
@@ -690,14 +674,13 @@ bool
 king_in_check(char *chessboard, int color)
 {
 	int square;
-
 	for (square = 0; square < NUM_SQUARES; square++)
-	{
 		if (IS_KING(chessboard[square]) && COLOR(chessboard[square]) == color)
 			break;
-	}
 
-	return square_is_attacked(chessboard, color, square);
+	bool attacked = square_is_attacked(chessboard, color, square);
+
+	return attacked;
 }
 
 
@@ -705,7 +688,7 @@ bool
 forced_draw(game_state *game)
 {
 	// Draw Rule #1: Fifty moves by each player without capture of any piece, or the movement of a pawn
-	if (game->half_move_clock >= 100)
+	if (game->half_move_clock >= (50 + 50))
 		return true;
 
 	// Draw Rule #2: Insufficient mating material: a single bishop or a single knight
@@ -764,15 +747,16 @@ move_disambiguation(char *chessboard, piece_move *move)
 
 	for (int square = 0; square < NUM_SQUARES; square++)
 	{
-		if ((chessboard[square] != piece) || (square == move->to_square))
+		if ((chessboard[square] != piece) || (square == move->from_square))
 			continue;
 
 		if (square_is_attacked_by_piece(chessboard, square, move->to_square, piece))
 		{
 			if (FILE(square) != file_from)
 				move->file_ambiguity = true;
-			else if (RANK(square) != rank_from)
+			else
 				move->rank_ambiguity = true;
+
 			if (move->file_ambiguity && move->rank_ambiguity)
 				return;
 		}
@@ -780,85 +764,107 @@ move_disambiguation(char *chessboard, piece_move *move)
 }
 
 
-void
-get_move_list(char *move_list, game_state *game)
+int
+get_move_count_text(char *move_count_text, game_state *game, bool start)
 {
-	if (game == NULL || game->last_move == NULL)
-		return;
-
-	get_move_list(move_list, game->previous);
-
-	piece_move move = *(game->last_move);
-	char piece = move.moving_piece;
-	char text[20] = {0};
+	int len = 0;
 
 	if (game->side_to_move == BLACK)
-		sprintf(text, "%d. ", game->full_move_counter);
-	if (game->side_to_move == WHITE && move_list[0] == 0)
-		sprintf(text, "%d... ", game->full_move_counter - 1);
+		sprintf(move_count_text, "%d. %n", game->full_move_counter, &len);
+	else if (game->side_to_move == WHITE && start)
+		sprintf(move_count_text, "%d... %n", (game->full_move_counter - 1), &len);
 
-	if (IS_KING(piece) && FILE(move.from_square) == 'e' && FILE(move.to_square) == 'g')
-		sprintf(text, "%sO-O", text);
-	else if (IS_KING(piece) && FILE(move.from_square) == 'e' && FILE(move.to_square) == 'c')
-		sprintf(text, "%sO-O-O", text);
+	return len;
+}
+
+
+int
+get_move_text(char *move_text, piece_move *move)
+{
+	int len = 0;
+	char piece = move->moving_piece, *text = move_text;
+
+	if (IS_KING(piece) && FILE(move->from_square) == 'e' && FILE(move->to_square) == 'g')
+		sprintf(text, "O-O%n", &len);
+	else if (IS_KING(piece) && FILE(move->from_square) == 'e' && FILE(move->to_square) == 'c')
+		sprintf(text, "O-O-O%n", &len);
 	else
 	{
 		if (!IS_PAWN(piece))
-			sprintf(text, "%s%c", text, toupper(piece));
-		if (move.file_ambiguity || (IS_PAWN(piece) && move.capture))
-			sprintf(text, "%s%c", text, FILE(move.from_square));
-		if (move.rank_ambiguity)
-			sprintf(text, "%s%c", text, RANK(move.from_square));
-		if (move.capture)
-			sprintf(text, "%sx", text);
-		sprintf(text, "%s%c%c", text, FILE(move.to_square), RANK(move.to_square));
-		if (move.en_passant)
-			sprintf(text, "%se.p.", text);
-		if (IS_PIECE(move.promoted_piece))
-			sprintf(text, "%s=%c", text, toupper(move.promoted_piece));
+			sprintf(text += len, "%c%n", toupper(piece), &len);
+		if (move->file_ambiguity || (IS_PAWN(piece) && move->capture))
+			sprintf(text += len, "%c%n", FILE(move->from_square), &len);
+		if (move->rank_ambiguity)
+			sprintf(text += len, "%c%n", RANK(move->from_square), &len);
+		if (move->capture)
+			sprintf(text += len, "x%n", &len);
+		sprintf(text += len, "%c%c%n", FILE(move->to_square), RANK(move->to_square), &len);
+		if (move->en_passant)
+			sprintf(text += len, "e.p.%n", &len);
+		if (IS_PIECE(move->promoted_piece))
+			sprintf(text += len, "=%c%n", toupper(move->promoted_piece), &len);
 	}
 
-	if (move.mate)
-		sprintf(text, "%s#", text);
-	else if (move.check)
-		sprintf(text, "%s+", text);
+	if (move->mate)
+		sprintf(text += len, "#%n", &len);
+	else if (move->check)
+		sprintf(text += len, "+%n", &len);
 
-	if (move.draw)
-		sprintf(text, "%s(=)", text);
+	if (move->draw)
+		sprintf(text += len, "(=)%n", &len);
 
-	sprintf(move_list, "%s %s", move_list, text);
+	return (text - move_text + len);
+}
+
+
+void
+get_move_list(char *move_list, game_state *game, int start_move_counter = 1, int start_side_to_move = WHITE)
+{
+	if (game == NULL || game->last_move == NULL || game->full_move_counter < start_move_counter ||
+		(game->full_move_counter == start_move_counter && game->side_to_move < start_side_to_move))
+		return;
+
+	get_move_list(move_list, game->previous, start_move_counter, start_side_to_move);
+
+	bool start = (game->full_move_counter == start_move_counter && game->side_to_move == start_side_to_move);
+	int len = strlen(move_list);
+	move_list[len] = ' ';
+	len += get_move_count_text(move_list + len + 1, game, start);
+	len += get_move_text(move_list + len + 1, game->last_move);
+}
+
+
+bool
+first_move(game_state *game)
+{
+	bool is_first_move = (game->previous == NULL);
+
+	return is_first_move;
 }
 
 
 bool
 goal_chessboard_achieved(game_state *game, char *goal_chessboard)
 {
-	if (strncmp(game->chessboard, goal_chessboard, NUM_SQUARES) == 0)
-		return true;
+	bool chessboard_achieved = (strncmp(game->chessboard, goal_chessboard, NUM_SQUARES) == 0);
 
-	return false;
+	return chessboard_achieved;
 }
 
 
 void
 format_commas(char *formatted_number, long num)
 {
-	char str_num[80];
-	sprintf(str_num, "%ld", num);
-	int len = (int) strlen(str_num);
+	char str_num[80], *fn = formatted_number;
+	int last = sprintf(str_num, "%ld", num) - 1;
 
-	for (int i = 0; i < len; i++)
+	for (int i = 0; i <= last; i++)
 	{
-		(*formatted_number) = str_num[i];
-		formatted_number++;
-		if (i == (len - 1))
-			(*formatted_number) = 0;
-		else if ((len - 1 - i) % 3 == 0)
-		{
-			(*formatted_number) = ',';
-			formatted_number++;
-		}
+		*fn++ = str_num[i];
+		if ((last - i) % 3 == 0)
+			*fn++ = ',';
 	}
+	*(--fn) = 0;
 }
 
 
@@ -892,45 +898,39 @@ print_variant_format(FILE *results, int move_count, char *move_list, bool mate, 
 }
 
 
-int
-print_variant(FILE *results, game_state *game, bool mate, bool draw, int verbose)
+void
+print_variant(char const *results_name, game_state *game, bool mate, bool draw, int verbose)
 {
-	int move_count = game->full_move_counter;
-	if (game->side_to_move == WHITE)
-		move_count--;
+	int move_count = (game->side_to_move == WHITE) ? (game->full_move_counter - 1) : game->full_move_counter;
 	char move_list[4000];
 	move_list[0] = 0;
 	get_move_list(move_list, game);
 
-	if (results)
-		print_variant_format(results, move_count, move_list, mate, draw);
+	if (results_name)
+	{
+		save_results = fopen(results_name, "a");
+		print_variant_format(save_results, move_count, move_list, mate, draw);
+		fclose(save_results);
+	}
 
 	if (verbose)
 		print_variant_format(stdout, move_count, move_list, mate, draw);
-
-	return move_count;
 }
 
 
-bool
+int
 finish_variant(game_state *game, bool mate = false, bool stalemate = false)
 {
-	bool draw = stalemate || forced_draw(game);
-	bool chessboard = (game->side_to_move == WHITE && goal_chessboard_achieved(game, final_chessboard));
+	int  move_count = (game->side_to_move == WHITE) ? (game->full_move_counter - 1) : game->full_move_counter;
 	bool max_moves  = (game->side_to_move == WHITE && game->full_move_counter > max_full_move_count);
-	bool successful = (goal_is_mate && mate) || (goal_is_draw && draw) || (goal_is_chessboard && chessboard);
-	bool finish = successful || mate || draw || max_moves;
+	bool chessboard = (game->side_to_move == WHITE && goal_chessboard_achieved(game, final_chessboard));
+	bool draw = stalemate || forced_draw(game);
+	bool goal_achieved = (goal_is_mate && mate) || (goal_is_draw && draw) || (goal_is_chessboard && chessboard);
+	bool finish = goal_achieved || mate || draw || max_moves;
+	int  results = SET_FINISH(finish) | SET_GOAL_ACHIEVED(goal_achieved) |
+				   SET_MATE(mate) | SET_DRAW(draw) | SET_CHESSBOARD(chessboard) | SET_MAX_MOVES(max_moves) | SET_MOVE_COUNT(move_count);
 
-	if (successful)
-	{
-		successful_results++;
-		save_results = fopen(save_results_name, "a");
-		int move_count = print_variant(save_results, game, mate, draw, verbose);
-		fclose(save_results);
-		if (move_count < min_full_move_count)
-			min_full_move_count = move_count;
-	}
-	else if (verbose > 2 || (finish && verbose > 1))
+	if ((finish && verbose > 1) || verbose > 2)
 		print_variant(NULL, game, mate, draw, verbose);
 
 	if (finish)
@@ -939,11 +939,11 @@ finish_variant(game_state *game, bool mate = false, bool stalemate = false)
 		print_stats(1000000, 0);
 	}
 
-	return finish;
+	return results;
 }
 
 
-bool
+int
 finish_mate_or_stalemate(game_state *game)
 {
 	bool mate = false, stalemate = false;
@@ -959,11 +959,13 @@ finish_mate_or_stalemate(game_state *game)
 		game->last_move->draw = stalemate;
 	}
 
-	return finish_variant(game, mate, stalemate);
+	int results = finish_variant(game, mate, stalemate);
+
+	return results;
 }
 
 
-void
+int
 get_all_valid_moves_from_state(game_state *game)
 {
 	piece_move next_move, legal_moves[MAX_LEGAL_MOVES];
@@ -975,6 +977,8 @@ get_all_valid_moves_from_state(game_state *game)
 
 	int color = game->side_to_move;
 	int valid_moves = 0;
+	int results = 0;
+	bool forced_mate = false;
 	for (int square = 0; square < NUM_SQUARES; square++)
 	{
 		char piece = game->chessboard[square];
@@ -1002,45 +1006,55 @@ get_all_valid_moves_from_state(game_state *game)
 
 			valid_moves++;
 			update_state(&next);
-			move_disambiguation(next.chessboard, &next_move);
+			move_disambiguation(game->chessboard, &next_move);
 			next_move.check = king_in_check(next.chessboard, next.side_to_move);
 
-			if (!finish_variant(&next))
-				get_all_valid_moves_from_state(&next);
+			results = finish_variant(&next);
+			if (!FINISH(results))
+				results = get_all_valid_moves_from_state(&next) & FLAGS(results);
+
+			if (!GOAL_ACHIEVED(results) && (goal_is_mate || goal_is_draw) && !first_move(game))
+				return results;
+
+			if (GOAL_ACHIEVED(results) && (goal_is_mate || goal_is_draw) && first_move(game))
+			{
+				successful_results++;
+				print_variant(save_results_name, game, MATE(results), DRAW(results), verbose);
+				if (min_full_move_count > MOVE_COUNT(results))
+					min_full_move_count = MOVE_COUNT(results);
+			}
+
+
+
 		}
 	}
 
 	if (valid_moves == 0)
-		finish_mate_or_stalemate(game);
+		results = finish_mate_or_stalemate(game);
+
+	return results;
 }
 
 
-bool
-open_file(char const *file_name)
+void
+secure_file(char const *file_name)
 {
 	FILE *file = fopen(file_name, "r");
 
-	if (file)
-    {
-    	fclose(file);
-		pid_t pid = getpid();
-		char new_file_name[2000], file_type[80];
-		strcpy(new_file_name, file_name);
-		char *p = strrchr(new_file_name, '.');
-		if (p == NULL)
-			p = new_file_name + strlen(new_file_name);
-		strcpy(file_type, p);
-		(*p) = 0;
-		sprintf(new_file_name, "%s_%d%s", new_file_name, (int) pid, file_type);
-		rename(file_name, new_file_name);
-    }
-
-	file = fopen(file_name, "w");
 	if (file == NULL)
-		return false;
+		return;
 
 	fclose(file);
-	return true;
+	pid_t pid = getpid();
+	char new_file_name[2000], file_type[80];
+	strcpy(new_file_name, file_name);
+	char *p = strrchr(new_file_name, '.');
+	if (p == NULL)
+		p = new_file_name + strlen(new_file_name);
+	strcpy(file_type, p);
+	(*p) = 0;
+	sprintf(new_file_name, "%s_%d%s", new_file_name, (int) pid, file_type);
+	rename(file_name, new_file_name);
 }
 
 
@@ -1111,7 +1125,7 @@ read_parameters(int argc, char **argv)
 		}
 		else if (strcmp(argv[i], "-v") == 0)
 		{
-			if (i == argc - 1 || argv[i+1][0] == '-')
+			if (i == argc - 1 || argv[i + 1][0] == '-')
 				verbose = 1;
 			else
 			{
@@ -1128,13 +1142,21 @@ read_parameters(int argc, char **argv)
 
 	if (!(goal_is_mate || goal_is_draw || goal_is_chessboard))
 		usage(10, "At least one search option (-f -m -d) must be set");
+
+	print_chessboard(initial_chessboard);
+
+	if (king_in_check(initial_chessboard, (initial_side_to_move == WHITE) ? BLACK : WHITE))
+	{
+		fprintf(stderr, "%s king is in check on initial chessboard: %s\n\n", (initial_side_to_move == WHITE ? "Black" : "White"), initial_fen);
+		exit(11);
+	}
 }
 
 
 bool
 piece_restriction_K_Ra1_Pa(char piece, int square)
 {
-	// Rule #1 for the Kuwaiti problem: K, Ra1 and Pa never move
+	// Rule #1 for the Kuwait problem: K, Ra1 and Pa never move
 	if ((piece == WHITE_KING) || (piece == WHITE_ROOK && square == SQUARE('a','1')) || (piece == WHITE_PAWN && FILE(square) == 'a'))
 		return true;
 
@@ -1145,11 +1167,11 @@ piece_restriction_K_Ra1_Pa(char piece, int square)
 bool
 move_restriction_Pb_Pf_capture(piece_move *move)
 {
-	// Rule #2 for the Kuwaiti problem: Pb...Pf cannot move ahead and cannot capture pieces to the right side
+	// Rule #2 for the Kuwait problem: Pb...Pf cannot move ahead and cannot capture pieces to the right side
 	if (move->moving_piece == WHITE_PAWN && FILE(move->from_square) <= 'f' && FILE(move->from_square) <= FILE(move->to_square))
 		return true;
 
-	// Rule #3 for the Kuwaiti problem: Every other white piece but Pb...Pf cannot capture anything
+	// Rule #3 for the Kuwait problem: Every other white piece but Pb...Pf cannot capture anything
 	if (COLOR(move->moving_piece) == WHITE && !(move->moving_piece == WHITE_PAWN && FILE(move->from_square) <= 'f') && move->capture)
 		return true;
 
@@ -1160,16 +1182,14 @@ move_restriction_Pb_Pf_capture(piece_move *move)
 int
 main(int argc, char **argv)
 {
-	game_state initial;
 	fen_piece_placement(initial_chessboard, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR");
 
 	if (argc == 1 || strcmp(argv[1], "-h") == 0)
 		usage(-1);
 
 	read_parameters(argc, argv);
-	default_game_state(&initial, initial_chessboard);
-	if (!open_file(save_results_name))
-		usage(-2, "Cannot open file name: ", save_results_name);
+	set_game_state(&initial_game, initial_chessboard, initial_side_to_move);
+	secure_file(save_results_name);
 
 	if (goal_is_chessboard && strcmp(final_fen, "k7/P7/P7/P7/P7/P7/P7/R3K3") == 0) // Kuwait chess problem specifics
 	{
@@ -1178,7 +1198,7 @@ main(int argc, char **argv)
 		max_full_move_count = 34;
 	}
 
-	get_all_valid_moves_from_state(&initial);
+	get_all_valid_moves_from_state(&initial_game);
 
 	print_stats(1, 1);
 	return 0;
