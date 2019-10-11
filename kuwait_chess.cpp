@@ -846,7 +846,7 @@ first_move(game_state *game)
 bool
 goal_chessboard_achieved(game_state *game, char *goal_chessboard)
 {
-	bool chessboard_achieved = (strncmp(game->chessboard, goal_chessboard, NUM_SQUARES) == 0);
+	bool chessboard_achieved = goal_is_chessboard && (strncmp(game->chessboard, goal_chessboard, NUM_SQUARES) == 0);
 
 	return chessboard_achieved;
 }
@@ -918,17 +918,33 @@ print_variant(char const *results_name, game_state *game, bool mate, bool draw, 
 }
 
 
-int
+long
+set_result(bool finish, bool mate, bool draw, bool chessboard, int move_count)
+{
+	long result = SET_FINISH(finish) | SET_MATE(mate) | SET_DRAW(draw) | SET_CHESSBOARD(chessboard);
+
+	if (mate)
+		result |= SET_MOVE_COUNT_MATE((long) move_count);
+
+	if (draw)
+		result |= SET_MOVE_COUNT_DRAW((long) move_count);
+
+	if (chessboard)
+		result |= SET_MOVE_COUNT_CHESSBOARD((long) move_count);
+
+	return result;
+}
+
+
+long
 finish_variant(game_state *game, bool mate = false, bool stalemate = false)
 {
-	int  move_count = (game->side_to_move == WHITE) ? (game->full_move_counter - 1) : game->full_move_counter;
+	int move_count = (game->side_to_move == WHITE) ? (game->full_move_counter - 1) : game->full_move_counter;
 	bool max_moves  = (game->side_to_move == WHITE && game->full_move_counter > max_full_move_count);
 	bool chessboard = (game->side_to_move == WHITE && goal_chessboard_achieved(game, final_chessboard));
 	bool draw = stalemate || forced_draw(game);
-	bool goal_achieved = (goal_is_mate && mate) || (goal_is_draw && draw) || (goal_is_chessboard && chessboard);
-	bool finish = goal_achieved || mate || draw || max_moves;
-	int  results = SET_FINISH(finish) | SET_GOAL_ACHIEVED(goal_achieved) |
-				   SET_MATE(mate) | SET_DRAW(draw) | SET_CHESSBOARD(chessboard) | SET_MAX_MOVES(max_moves) | SET_MOVE_COUNT(move_count);
+	bool finish = mate || draw || chessboard || max_moves;
+	long result = set_result(finish, mate, draw, chessboard, move_count);
 
 	if ((finish && verbose > 1) || verbose > 2)
 		print_variant(NULL, game, mate, draw, verbose);
@@ -939,11 +955,11 @@ finish_variant(game_state *game, bool mate = false, bool stalemate = false)
 		print_stats(1000000, 0);
 	}
 
-	return results;
+	return result;
 }
 
 
-int
+long
 finish_mate_or_stalemate(game_state *game)
 {
 	bool mate = false, stalemate = false;
@@ -959,15 +975,16 @@ finish_mate_or_stalemate(game_state *game)
 		game->last_move->draw = stalemate;
 	}
 
-	int results = finish_variant(game, mate, stalemate);
+	long result = finish_variant(game, mate, stalemate);
 
-	return results;
+	return result;
 }
 
 
-int
+long
 get_all_valid_moves_from_state(game_state *game)
 {
+	long result;
 	piece_move next_move, legal_moves[MAX_LEGAL_MOVES];
 	game_state next = *game;
 	next.last_move = &next_move;
@@ -977,15 +994,16 @@ get_all_valid_moves_from_state(game_state *game)
 
 	int color = game->side_to_move;
 	int valid_moves = 0;
-	int results = 0;
-	bool forced_mate = false;
+	bool mate_candidate = (color != initial_side_to_move);
+	bool draw_candidate = (color != initial_side_to_move);
+
 	for (int square = 0; square < NUM_SQUARES; square++)
 	{
 		char piece = game->chessboard[square];
-		if ((color == WHITE && !IS_WHITE(piece)) || (color == BLACK && !IS_BLACK(piece)))
+		if (IS_EMPTY(piece) || (color != COLOR(piece)))
 			continue;
 
-		if ((*special_piece_restriction)(piece, square))
+		if ((*special_piece_restriction)(piece, square)) // Problem specifics
 			continue;
 
 		int legal_move_count = get_legal_moves(legal_moves, game, piece, square);
@@ -993,7 +1011,7 @@ get_all_valid_moves_from_state(game_state *game)
 		{
 			next_move = legal_moves[i];
 
-			if ((*special_move_restriction)(&next_move))
+			if ((*special_move_restriction)(&next_move)) // Problem specifics
 				continue;
 
 			update_chessboard(next.chessboard, game->chessboard, &next_move);
@@ -1004,35 +1022,45 @@ get_all_valid_moves_from_state(game_state *game)
 			if (castling_under_attack(next.chessboard, &next_move)) // Illegal move: Castling under attack
 				continue;
 
+			// At this point there is a valid move to analyze
 			valid_moves++;
 			update_state(&next);
 			move_disambiguation(game->chessboard, &next_move);
 			next_move.check = king_in_check(next.chessboard, next.side_to_move);
 
-			results = finish_variant(&next);
-			if (!FINISH(results))
-				results = get_all_valid_moves_from_state(&next) & FLAGS(results);
+			result = finish_variant(&next);
+			if (FINISH(result))
+				;
+			else
+				result = get_all_valid_moves_from_state(&next); // Go recursively until variant reaches an end
 
-			if (!GOAL_ACHIEVED(results) && (goal_is_mate || goal_is_draw) && !first_move(game))
-				return results;
-
-			if (GOAL_ACHIEVED(results) && (goal_is_mate || goal_is_draw) && first_move(game))
+			if (color == initial_side_to_move)
 			{
-				successful_results++;
-				print_variant(save_results_name, game, MATE(results), DRAW(results), verbose);
-				if (min_full_move_count > MOVE_COUNT(results))
-					min_full_move_count = MOVE_COUNT(results);
+				if (goal_is_mate)
+					mate_candidate |= MATE(result);
+				if (goal_is_draw)
+					draw_candidate |= DRAW(result);
 			}
-
-
-
+			else
+			{
+				if (goal_is_mate)
+					mate_candidate &= MATE(result);
+				if (goal_is_draw)
+					draw_candidate &= DRAW(result);
+				if (!mate_candidate && !draw_candidate)
+					return result; // Interrupt search if there is at least one unsuccessful variant for the opponent's pieces
+			}
 		}
 	}
 
-	if (valid_moves == 0)
-		results = finish_mate_or_stalemate(game);
+	// At this point all variants of a given game-state were analyzed
 
-	return results;
+	if (valid_moves == 0)
+		result = finish_mate_or_stalemate(game);
+	else
+		result = set_result(true, mate_candidate, draw_candidate, false, 0);
+
+	return result;
 }
 
 
@@ -1199,6 +1227,14 @@ main(int argc, char **argv)
 	}
 
 	get_all_valid_moves_from_state(&initial_game);
+
+//	if (GOAL_ACHIEVED(result) && (goal_is_mate || goal_is_draw) && first_move(game))
+//	{
+//		successful_results++;
+//		print_variant(save_results_name, game, MATE(result), DRAW(result), verbose);
+//		if (min_full_move_count > MOVE_COUNT(result))
+//			min_full_move_count = MOVE_COUNT(result);
+//	}
 
 	print_stats(1, 1);
 	return 0;
