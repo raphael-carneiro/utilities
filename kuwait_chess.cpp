@@ -229,7 +229,7 @@ print_chessboard(char *chessboard)
 			int square = r * NUM_FILES + f;
 			char const *fg_color = IS_WHITE(chessboard[square]) ? FG_DEFAULT : FG_DEFAULT;
 			char const *bg_color = IS_WHITE_SQUARE(square) ? REVERSE : RESET_REVERSE;
-			printf("%s%s%c %s%s", bg_color, fg_color, chessboard[square], BG_DEFAULT, FG_DEFAULT);
+			printf("%s%s%c %s%s", bg_color, fg_color, chessboard[square], RESET_REVERSE, FG_DEFAULT);
 		}
 		printf("\n");
 	}
@@ -645,7 +645,7 @@ square_is_attacked(char *chessboard, int color, int square)
 	{
 		char piece = chessboard[attacking_square];
 
-		if ((color == WHITE && !IS_BLACK(piece)) || (color == BLACK && !IS_WHITE(piece)))
+		if (IS_EMPTY(piece) || (color == COLOR(piece)))
 			continue;
 
 		if (square_is_attacked_by_piece(chessboard, attacking_square, square, piece))
@@ -684,11 +684,8 @@ castling_under_attack(char *chessboard, piece_move *move)
 bool
 king_in_check(char *chessboard, int color)
 {
-	int square;
-	for (square = 0; square < NUM_SQUARES; square++)
-		if (IS_KING(chessboard[square]) && COLOR(chessboard[square]) == color)
-			break;
-
+	char king = (color == WHITE) ? WHITE_KING : BLACK_KING;
+	int square = strchr(chessboard, king) - chessboard;
 	bool attacked = square_is_attacked(chessboard, color, square);
 
 	return attacked;
@@ -703,8 +700,8 @@ forced_draw(game_state *game)
 		return true;
 
 	// Draw Rule #2: Insufficient mating material: a single bishop or a single knight
-	bool insufficient = true;
-	int white_bishops = 0, white_knights = 0, black_bishops = 0, black_knights = 0;
+	bool minor_pieces_only = true;
+	int white_bishops_w = 0, white_bishops_b = 0, white_knights = 0, black_bishops_w = 0, black_bishops_b = 0, black_knights = 0;
 	for (int square = 0; square < NUM_SQUARES; square++)
 	{
 		char piece = game->chessboard[square];
@@ -713,16 +710,19 @@ forced_draw(game_state *game)
 
 		if (IS_QUEEN(piece) || IS_ROOK(piece) || IS_PAWN(piece))
 		{
-			insufficient = false;
+			minor_pieces_only = false;
 			break;
 		}
 
-		white_bishops += (piece == WHITE_BISHOP);
-		white_knights += (piece == WHITE_KNIGHT);
-		black_bishops += (piece == BLACK_BISHOP);
-		black_knights += (piece == BLACK_KNIGHT);
+		white_bishops_w |= (piece == WHITE_BISHOP && IS_WHITE_SQUARE(square));
+		white_bishops_b |= (piece == WHITE_BISHOP && IS_BLACK_SQUARE(square));
+		white_knights   += (piece == WHITE_KNIGHT);
+		black_bishops_w |= (piece == BLACK_BISHOP && IS_WHITE_SQUARE(square));
+		black_bishops_b |= (piece == BLACK_BISHOP && IS_BLACK_SQUARE(square));
+		black_knights   += (piece == BLACK_KNIGHT);
 	}
-	if (insufficient && (white_bishops + white_knights) <= 1 && (black_bishops + black_knights) <= 1)
+	if (minor_pieces_only && (white_bishops_w + white_bishops_b + white_knights) < 2 &&
+							 (black_bishops_w + black_bishops_b + black_knights) < 2)
 		return true;
 
 	// Draw Rule #3: Threefold repetition: the same position is reached three times with the same player to move
@@ -793,7 +793,8 @@ int
 get_move_text(char *move_text, piece_move *move)
 {
 	int len = 0;
-	char piece = move->moving_piece, *text = move_text;
+	char piece = move->moving_piece;
+	char *text = move_text;
 
 	if (IS_KING(piece) && FILE(move->from_square) == 'e' && FILE(move->to_square) == 'g')
 		sprintf(text, "O-O%n", &len);
@@ -824,24 +825,26 @@ get_move_text(char *move_text, piece_move *move)
 	if (move->draw)
 		sprintf(text += len, "(=)%n", &len);
 
-	return (text - move_text + len);
+	len += (text - move_text);
+	return len;
 }
 
 
-void
+int
 get_move_list(char *move_list, game_state *game, int start_move_counter = 1, int start_side_to_move = WHITE)
 {
 	if (game == NULL || game->last_move == NULL || game->full_move_counter < start_move_counter ||
 		(game->full_move_counter == start_move_counter && game->side_to_move < start_side_to_move))
-		return;
+		return 0;
 
-	get_move_list(move_list, game->previous, start_move_counter, start_side_to_move);
+	int len = get_move_list(move_list, game->previous, start_move_counter, start_side_to_move);
 
 	bool start = (game->full_move_counter == start_move_counter && game->side_to_move == start_side_to_move);
-	int len = strlen(move_list);
-	move_list[len] = ' ';
-	len += get_move_count_text(move_list + len + 1, game, start);
-	len += get_move_text(move_list + len + 1, game->last_move);
+	move_list[len++] = ' ';
+	len += get_move_count_text(move_list + len, game, start);
+	len += get_move_text(move_list + len, game->last_move);
+
+	return len;
 }
 
 
@@ -1037,6 +1040,7 @@ long
 get_all_valid_moves_from_state(game_state *game)
 {
 	long result;
+	bool mate_candidate, draw_candidate;
 	piece_move next_move, legal_moves[MAX_LEGAL_MOVES];
 	game_state next = *game;
 	next.last_move = &next_move;
@@ -1046,8 +1050,6 @@ get_all_valid_moves_from_state(game_state *game)
 
 	int color = game->side_to_move;
 	int valid_moves = 0;
-	bool mate_candidate = (color != initial_side_to_move);
-	bool draw_candidate = (color != initial_side_to_move);
 
 	for (int square = 0; square < NUM_SQUARES; square++)
 	{
@@ -1084,15 +1086,25 @@ get_all_valid_moves_from_state(game_state *game)
 			if (!FINISH(result))
 				result = get_all_valid_moves_from_state(&next); // Go recursively until variant reaches an end
 
-			if (color == initial_side_to_move)
+			mate_candidate = goal_is_mate && MATE(result);
+			draw_candidate = goal_is_draw && DRAW(result);
+
+			if (color != initial_side_to_move)
 			{
-				if (goal_is_mate && MATE(result))
+				if (!mate_candidate && !draw_candidate && !goal_is_chessboard)
+					return 0; // Interrupt branch if there is an opponent's move that leads to a non-goal finish
+			}
+			else
+			{
+				if (goal_is_mate)
 				{
-					mate_candidate = true;
-					if (first_move(game))
+					if (FINISH(result) && mate_candidate)
+						; // Push mate candidate
+
+					if (first_move(game) && mate_candidate)
 					{
 						// Print all mate candidates derived from this game-state
-						print_variant(save_results_name, &next, MATE(result), DRAW(result), verbose, true);
+						print_variant(save_results_name, &next, mate_candidate, draw_candidate, verbose, true);
 						mate_results++;
 						if (min_move_count_mate > game->full_move_counter)
 						{
@@ -1100,15 +1112,20 @@ get_all_valid_moves_from_state(game_state *game)
 							mate_results = 1;
 						}
 					}
+
+					if (first_move(game) || !mate_candidate)
+						; // Clear memory
 				}
 
-				if (goal_is_draw && DRAW(result))
+				if (goal_is_draw)
 				{
-					draw_candidate = true;
-					if (first_move(game))
+					if (FINISH(result) && draw_candidate)
+						; // Push draw candidate
+
+					if (first_move(game) && draw_candidate)
 					{
 						// Print all draw candidates derived from this game-state
-						print_variant(save_results_name, &next, MATE(result), DRAW(result), verbose, true);
+						print_variant(save_results_name, &next, mate_candidate, draw_candidate, verbose, true);
 						draw_results++;
 						if (min_move_count_draw > game->full_move_counter)
 						{
@@ -1116,22 +1133,10 @@ get_all_valid_moves_from_state(game_state *game)
 							draw_results = 1;
 						}
 					}
+
+					if (first_move(game) || !draw_candidate)
+						; // Clear memory
 				}
-			}
-			else // (color != initial_side_to_move)
-			{
-				if (goal_is_mate && !MATE(result))
-				{
-					mate_candidate = false;
-					// Delete all mate candidates derived from this game-state
-				}
-				if (goal_is_draw && !DRAW(result))
-				{
-					draw_candidate = false;
-					// Delete all draw candidates derived from this game-state
-				}
-				if (!((goal_is_mate && mate_candidate) || (goal_is_draw && draw_candidate)))
-					return result; // Interrupt search if there is at least one unsuccessful variant for the opponent's pieces
 			}
 		}
 	}
@@ -1311,13 +1316,7 @@ main(int argc, char **argv)
 
 	get_all_valid_moves_from_state(&initial_game);
 
-//	if (GOAL_ACHIEVED(result) && (goal_is_mate || goal_is_draw) && first_move(game))
-//	{
-//		successful_results++;
-//		print_variant(save_results_name, game, MATE(result), DRAW(result), verbose);
-//		if (min_full_move_count > MOVE_COUNT(result))
-//			min_full_move_count = MOVE_COUNT(result);
-//	}
+//	Print all lines from save_results which move_count == min_move_count
 
 	print_stats(1, 1);
 	return 0;
