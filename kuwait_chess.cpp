@@ -20,9 +20,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <string>
+#include <cstring>
+#include <vector>
+
+using namespace std;
 
 bool goal_is_mate = false;
 bool goal_is_draw = false;
@@ -41,6 +45,8 @@ int  min_move_count_mate = 9999;
 int  min_move_count_draw = 9999;
 int  min_move_count_chessboard = 9999;
 int  max_full_move_count = 9999;
+vector<string> mate_variant;
+vector<string> draw_variant;
 FILE *save_results = NULL;
 char const *save_results_name = "kuwait_chess.txt";
 int verbose = 1;
@@ -931,13 +937,15 @@ print_stats(long module, int line_feeds)
 
 
 void
-print_variant_format(FILE *results, int move_count, char *move_list, bool mate, bool draw, bool goal = false)
+print_variant_format(FILE *results, int move_count, char const *move_list, bool mate, bool draw, bool goal = false)
 {
 	char const *color1 = (goal ? FG_RED : "");
 	char const *color2 = (goal ? FG_DEFAULT : "");
 
-	fprintf(results, "%s(%3d%c) %s%s\n", color1, move_count, (mate ? '#' : draw ? '=' : ' '), move_list, color2);
+//	fprintf(results, "%s(%3d%c) %s%s\n", color1, move_count, (mate ? '#' : draw ? '=' : ' '), move_list, color2);
+	fprintf(results, "%s(%3d) %s%s\n", color1, move_count, move_list, color2);
 }
+
 
 void
 print_variant(char const *results_name, game_state *game, bool mate, bool draw, int verbose, bool goal = false)
@@ -978,6 +986,21 @@ set_result(bool finish, bool mate, bool draw, bool chessboard, int move_count)
 
 
 long
+set_result(bool mate, bool draw, int move_count_mate, int move_count_draw)
+{
+	long result = SET_MATE(mate) | SET_DRAW(draw);
+
+	if (mate)
+		result |= SET_MOVE_COUNT_MATE((long) move_count_mate);
+
+	if (draw)
+		result |= SET_MOVE_COUNT_DRAW((long) move_count_draw);
+
+	return result;
+}
+
+
+long
 finish_variant(game_state *game, bool mate = false, bool stalemate = false)
 {
 	int  move_count = (game->side_to_move == WHITE) ? (game->full_move_counter - 1) : game->full_move_counter;
@@ -991,8 +1014,8 @@ finish_variant(game_state *game, bool mate = false, bool stalemate = false)
 
 	if (chessboard)
 	{
-		print_variant(save_results_name, game, mate, draw, verbose, true);
 		chessboard_results++;
+		print_variant(save_results_name, game, mate, draw, verbose, true);
 		if (min_move_count_chessboard > move_count)
 		{
 			min_move_count_chessboard = move_count;
@@ -1036,11 +1059,27 @@ finish_mate_or_stalemate(game_state *game)
 }
 
 
+void
+push_variant(vector<string> &variant_list, game_state *game)
+{
+	int move_count = (game->side_to_move == WHITE) ? (game->full_move_counter - 1) : game->full_move_counter;
+	char move_list[4000];
+	move_list[0] = 0;
+	get_move_list(move_list, game);
+
+	char variant[4000];
+	sprintf(variant, "(%3d) %s\n", move_count, move_list);
+	variant_list.push_back(string(variant));
+}
+
+
 long
 get_all_valid_moves_from_state(game_state *game)
 {
 	long result;
 	bool mate_candidate, draw_candidate;
+	size_t game_mate_variants = mate_variant.size();
+	size_t game_draw_variants = draw_variant.size();
 	piece_move next_move, legal_moves[MAX_LEGAL_MOVES];
 	game_state next = *game;
 	next.last_move = &next_move;
@@ -1082,6 +1121,10 @@ get_all_valid_moves_from_state(game_state *game)
 			move_disambiguation(game->chessboard, &next_move);
 			next_move.check = king_in_check(next.chessboard, next.side_to_move);
 
+			size_t current_mate_variants = mate_variant.size();
+			size_t current_draw_variants = draw_variant.size();
+			int current_min_move_count_mate = min_move_count_mate;
+			int current_min_move_count_draw = min_move_count_draw;
 			result = finish_variant(&next);
 			if (!FINISH(result))
 				result = get_all_valid_moves_from_state(&next); // Go recursively until variant reaches an end
@@ -1091,30 +1134,45 @@ get_all_valid_moves_from_state(game_state *game)
 
 			if (color != initial_side_to_move)
 			{
-				if (!mate_candidate && !draw_candidate && !goal_is_chessboard)
-					return 0; // Interrupt branch if there is an opponent's move that leads to a non-goal finish
+				if (goal_is_chessboard)
+					continue;
+
+				if (FINISH(result) && MATE(result))
+					return 0; // Interrupt branch search if last opponent's move is checkmate
+
+				if (!mate_candidate && !draw_candidate)
+					return 0; // Interrupt branch search if there is any opponent's move that leads to a non-goal finish
 			}
 			else
 			{
 				if (goal_is_mate)
 				{
-					if (FINISH(result) && mate_candidate)
-						; // Push mate candidate
-
-					if (first_move(game) && mate_candidate)
+					if (mate_candidate)
 					{
-						// Print all mate candidates derived from this game-state
-						print_variant(save_results_name, &next, mate_candidate, draw_candidate, verbose, true);
-						mate_results++;
-						if (min_move_count_mate > game->full_move_counter)
-						{
-							min_move_count_mate = game->full_move_counter;
-							mate_results = 1;
+						if (FINISH(result))
+							push_variant(mate_variant, &next);
+
+						if (min_move_count_mate > MOVE_COUNT_MATE(result))
+						{	// Erase sibling variants
+							if (current_mate_variants > game_mate_variants)
+								mate_variant.erase(mate_variant.begin() + game_mate_variants, mate_variant.begin() + current_mate_variants);
+							min_move_count_mate = MOVE_COUNT_MATE(result);
+							mate_results = mate_variant.size();
+						}
+
+						if (first_move(game))
+						{	// Print child variants
+							for (int i = current_mate_variants; i < mate_variant.size(); i++)
+								print_variant_format(stdout, MOVE_COUNT_MATE(result), mate_variant.at(i).c_str(), mate_candidate, draw_candidate, true);
 						}
 					}
-
-					if (first_move(game) || !mate_candidate)
-						; // Clear memory
+					else
+					{	// Erase child variants
+						if (mate_variant.size() > current_mate_variants)
+							mate_variant.erase(mate_variant.begin() + current_mate_variants, mate_variant.end());
+						min_move_count_mate = current_min_move_count_mate;
+						mate_results = mate_variant.size();
+					}
 				}
 
 				if (goal_is_draw)
@@ -1146,7 +1204,7 @@ get_all_valid_moves_from_state(game_state *game)
 	if (valid_moves == 0)
 		result = finish_mate_or_stalemate(game);
 	else
-		result = SET_MATE(mate_candidate) | SET_DRAW(draw_candidate);
+		result = set_result(mate_candidate, draw_candidate, min_move_count_mate, min_move_count_draw);
 
 	return result;
 }
