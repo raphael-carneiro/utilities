@@ -38,7 +38,6 @@ int  initial_side_to_move = WHITE;
 char initial_chessboard[NUM_SQUARES];
 char final_chessboard[NUM_SQUARES];
 long variants_analyzed  = 0;
-long mate_results = 0;
 long draw_results = 0;
 long chessboard_results = 0;
 int  min_move_count_mate = 9999;
@@ -56,7 +55,8 @@ int verbose = 1;
 #define RESET_REVERSE		"\e[27m"
 #define FG_DEFAULT			"\e[39m"
 #define BG_DEFAULT			"\e[49m"
-#define FG_RED				"\e[91m"
+#define FG_LIGHT_RED		"\e[91m"
+#define FG_LIGHT_CYAN		"\e[96m"
 
 
 bool
@@ -159,7 +159,7 @@ error_fen(int error_number, char const *error_text, char const *fen_text, char c
 	{
 		for (char const *c = fen_text; c != fen_char; c++)
 			fprintf(stderr, "%c", *c);
-		fprintf(stderr, "%s%c%s%s\n", FG_RED, *fen_char, FG_DEFAULT, (fen_char + 1));
+		fprintf(stderr, "%s%c%s%s\n", REVERSE, *fen_char, RESET_REVERSE, (fen_char + 1));
 	}
 
 	return error_message(error_number, error_text);
@@ -905,9 +905,9 @@ print_stats(long module, int line_feeds)
 
 		if (goal_is_mate)
 		{
-			format_commas(mate_results_str, mate_results);
+			format_commas(mate_results_str, mate_variant.size());
 			printf("Mate solutions: %s   ", mate_results_str);
-			if (mate_results > 0)
+			if (mate_variant.size() > 0)
 				printf("move count: %d   ", min_move_count_mate);
 		}
 
@@ -927,43 +927,46 @@ print_stats(long module, int line_feeds)
 				printf("move count: %d   ", min_move_count_chessboard);
 		}
 
-		if ((mate_results + draw_results + chessboard_results) > 0)
+		if ((mate_variant.size() + draw_results + chessboard_results) > 0)
 			printf("(See %s)", save_results_name);
+
+		printf("\n");
 	}
 
-	for (int i = 0; i < (line_feeds + 1); i++)
+	for (int i = 0; i < line_feeds; i++)
 		printf("\n");
 }
 
 
-void
-print_variant_format(FILE *results, int move_count, char const *move_list, bool mate, bool draw, bool goal = false)
+char *
+output_variant(char *print_line, int move_count, char const *move_list, bool highlight = false)
 {
-	char const *color1 = (goal ? FG_RED : "");
-	char const *color2 = (goal ? FG_DEFAULT : "");
+	char const *color1 = (highlight ? FG_LIGHT_CYAN : "");
+	char const *color2 = (highlight ? FG_DEFAULT : "");
 
-//	fprintf(results, "%s(%3d%c) %s%s\n", color1, move_count, (mate ? '#' : draw ? '=' : ' '), move_list, color2);
-	fprintf(results, "%s(%3d) %s%s\n", color1, move_count, move_list, color2);
+	sprintf(print_line, "%s(%d) %s%s", color1, move_count, move_list, color2);
+
+	return print_line;
 }
 
 
 void
-print_variant(char const *results_name, game_state *game, bool mate, bool draw, int verbose, bool goal = false)
+print_variant(char const *results_name, game_state *game, int verbose, bool highlight = false)
 {
 	int move_count = (game->side_to_move == WHITE) ? (game->full_move_counter - 1) : game->full_move_counter;
-	char move_list[4000];
+	char move_list[4000], print_line[4000];
 	move_list[0] = 0;
 	get_move_list(move_list, game);
 
 	if (results_name)
 	{
 		save_results = fopen(results_name, "a");
-		print_variant_format(save_results, move_count, move_list, mate, draw);
+		fprintf(save_results, "%s\n", output_variant(print_line, move_count, move_list));
 		fclose(save_results);
 	}
 
 	if (verbose)
-		print_variant_format(stdout, move_count, move_list, mate, draw, goal);
+		printf("%s\n", output_variant(print_line, move_count, move_list, highlight));
 }
 
 
@@ -1015,7 +1018,7 @@ finish_variant(game_state *game, bool mate = false, bool stalemate = false)
 	if (chessboard)
 	{
 		chessboard_results++;
-		print_variant(save_results_name, game, mate, draw, verbose, true);
+		print_variant(save_results_name, game, verbose, true);
 		if (min_move_count_chessboard > move_count)
 		{
 			min_move_count_chessboard = move_count;
@@ -1023,7 +1026,7 @@ finish_variant(game_state *game, bool mate = false, bool stalemate = false)
 		}
 	}
 	else if ((finish && verbose > 1) || verbose > 2)
-		print_variant(NULL, game, mate, draw, verbose);
+		print_variant(NULL, game, verbose);
 
 	if (finish)
 	{
@@ -1060,16 +1063,26 @@ finish_mate_or_stalemate(game_state *game)
 
 
 void
+print_results(vector<string> &results, bool goal, char const *title)
+{
+	if (goal)
+	{
+		printf("\n%s results:\n\n", title);
+		for (int i = 0; i < results.size(); i++)
+			printf("%s\n", results.at(i).c_str());
+	}
+}
+
+
+void
 push_variant(vector<string> &variant_list, game_state *game)
 {
 	int move_count = (game->side_to_move == WHITE) ? (game->full_move_counter - 1) : game->full_move_counter;
-	char move_list[4000];
+	char move_list[4000], variant[4000];
 	move_list[0] = 0;
 	get_move_list(move_list, game);
 
-	char variant[4000];
-	sprintf(variant, "(%3d) %s\n", move_count, move_list);
-	variant_list.push_back(string(variant));
+	variant_list.push_back(string(output_variant(variant, move_count, move_list, true)));
 }
 
 
@@ -1077,7 +1090,7 @@ long
 get_all_valid_moves_from_state(game_state *game)
 {
 	long result;
-	bool mate_candidate, draw_candidate;
+	bool game_mate_candidate = false, game_draw_candidate = false, mate_candidate, draw_candidate;
 	size_t game_mate_variants = mate_variant.size();
 	size_t game_draw_variants = draw_variant.size();
 	piece_move next_move, legal_moves[MAX_LEGAL_MOVES];
@@ -1129,8 +1142,8 @@ get_all_valid_moves_from_state(game_state *game)
 			if (!FINISH(result))
 				result = get_all_valid_moves_from_state(&next); // Go recursively until variant reaches an end
 
-			mate_candidate = goal_is_mate && MATE(result);
-			draw_candidate = goal_is_draw && DRAW(result);
+			game_mate_candidate |= mate_candidate = goal_is_mate && MATE(result);
+			game_draw_candidate |= draw_candidate = goal_is_draw && DRAW(result);
 
 			if (color != initial_side_to_move)
 			{
@@ -1138,7 +1151,7 @@ get_all_valid_moves_from_state(game_state *game)
 					continue;
 
 				if (FINISH(result) && MATE(result))
-					return 0; // Interrupt branch search if last opponent's move is checkmate
+					return 0; // Interrupt branch search if opponent's last move is checkmate
 
 				if (!mate_candidate && !draw_candidate)
 					return 0; // Interrupt branch search if there is any opponent's move that leads to a non-goal finish
@@ -1154,57 +1167,49 @@ get_all_valid_moves_from_state(game_state *game)
 
 						if (min_move_count_mate > MOVE_COUNT_MATE(result))
 						{	// Erase sibling variants
+							min_move_count_mate = MOVE_COUNT_MATE(result);
 							if (current_mate_variants > game_mate_variants)
 								mate_variant.erase(mate_variant.begin() + game_mate_variants, mate_variant.begin() + current_mate_variants);
-							min_move_count_mate = MOVE_COUNT_MATE(result);
-							mate_results = mate_variant.size();
-						}
-
-						if (first_move(game))
-						{	// Print child variants
-							for (int i = current_mate_variants; i < mate_variant.size(); i++)
-								print_variant_format(stdout, MOVE_COUNT_MATE(result), mate_variant.at(i).c_str(), mate_candidate, draw_candidate, true);
 						}
 					}
 					else
 					{	// Erase child variants
+						min_move_count_mate = current_min_move_count_mate;
 						if (mate_variant.size() > current_mate_variants)
 							mate_variant.erase(mate_variant.begin() + current_mate_variants, mate_variant.end());
-						min_move_count_mate = current_min_move_count_mate;
-						mate_results = mate_variant.size();
 					}
 				}
 
 				if (goal_is_draw)
 				{
-					if (FINISH(result) && draw_candidate)
-						; // Push draw candidate
-
-					if (first_move(game) && draw_candidate)
+					if (draw_candidate)
 					{
-						// Print all draw candidates derived from this game-state
-						print_variant(save_results_name, &next, mate_candidate, draw_candidate, verbose, true);
-						draw_results++;
-						if (min_move_count_draw > game->full_move_counter)
-						{
-							min_move_count_draw = game->full_move_counter;
-							draw_results = 1;
+						if (FINISH(result))
+							push_variant(draw_variant, &next);
+
+						if (min_move_count_draw > MOVE_COUNT_DRAW(result))
+						{	// Erase sibling variants
+							min_move_count_mate = MOVE_COUNT_DRAW(result);
+							if (current_draw_variants > game_draw_variants)
+								draw_variant.erase(draw_variant.begin() + game_draw_variants, draw_variant.begin() + current_draw_variants);
 						}
 					}
-
-					if (first_move(game) || !draw_candidate)
-						; // Clear memory
+					else
+					{	// Erase child variants
+						min_move_count_draw = current_min_move_count_draw;
+						if (draw_variant.size() > current_draw_variants)
+							draw_variant.erase(draw_variant.begin() + current_draw_variants, draw_variant.end());
+					}
 				}
 			}
 		}
 	}
-
 	// At this point all variants of a given game-state were analyzed
 
 	if (valid_moves == 0)
 		result = finish_mate_or_stalemate(game);
 	else
-		result = set_result(mate_candidate, draw_candidate, min_move_count_mate, min_move_count_draw);
+		result = set_result(game_mate_candidate, game_draw_candidate, min_move_count_mate, min_move_count_draw);
 
 	return result;
 }
@@ -1227,7 +1232,7 @@ secure_file(char const *file_name)
 		p = new_file_name + strlen(new_file_name);
 	strcpy(file_type, p);
 	(*p) = 0;
-	sprintf(new_file_name, "%s_%d%s", new_file_name, (int) pid, file_type);
+	sprintf(new_file_name, "%s_%d%s", new_file_name, pid, file_type);
 	rename(file_name, new_file_name);
 }
 
@@ -1374,7 +1379,8 @@ main(int argc, char **argv)
 
 	get_all_valid_moves_from_state(&initial_game);
 
-//	Print all lines from save_results which move_count == min_move_count
+	print_results(mate_variant, goal_is_mate, "Mate");
+	print_results(draw_variant, goal_is_draw, "Draw");
 
 	print_stats(1, 1);
 	return 0;
