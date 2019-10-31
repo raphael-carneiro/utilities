@@ -47,17 +47,23 @@ vector<string> mate_variant;
 vector<string> draw_variant;
 vector<string> chessboard_variant;
 FILE *save_results = NULL;
-char const *save_results_name = "kuwait_chess.txt";
+char const *save_results_name = NULL; // "kuwait_chess.txt";
 int verbose = 1;
 
 #define NORMAL				"\e[0m"
 #define REVERSE				"\e[7m"
 #define RESET_REVERSE		"\e[27m"
-#define FG_DEFAULT			"\e[39m"
-#define BG_DEFAULT			"\e[49m"
+#define FG_DEFAULT			"\e[0;39m"
+#define BG_DEFAULT			"\e[0;49m"
 #define FG_LIGHT_RED		"\e[91m"
 #define FG_LIGHT_YELLOW		"\e[93m"
 #define FG_LIGHT_CYAN		"\e[96m"
+#define FG_BOLD_LIGHT_RED	"\e[1;91m"
+#define FG_BOLD_RED			"\e[1;31m"
+#define FG_BOLD_YELLOW		"\e[1;33m"
+#define FG_BOLD_CYAN		"\e[1;36m"
+#define BG_BLACK			"\e[40m"
+#define BG_WHITE			"\e[47m"
 
 
 bool
@@ -83,6 +89,15 @@ error_message(int error_number, char const *error_text)
 		fprintf(stderr, "Error #%d: %s\n", error_number, error_text);
 
 	return error_number;
+}
+
+
+int
+extra(int num_pieces, int default_num_pieces)
+{
+	int extra_num_pieces = (num_pieces > default_num_pieces) ? (num_pieces - default_num_pieces) : 0;
+
+	return extra_num_pieces;
 }
 
 
@@ -143,8 +158,8 @@ piece_count_validation(char *chessboard)
 	if (P > NUM_PAWNS || p > NUM_PAWNS)
 		result |= 1 << error_message(6, "Invalid number of pawns");
 
-	promoted_P = (Q > NUM_QUEENS) * (Q - NUM_QUEENS) + (R > NUM_ROOKS) * (R - NUM_ROOKS) + (B > NUM_BISHOPS) * (B - NUM_BISHOPS) + (N > NUM_KNIGHTS) * (N - NUM_KNIGHTS);
-	promoted_p = (q > NUM_QUEENS) * (q - NUM_QUEENS) + (r > NUM_ROOKS) * (r - NUM_ROOKS) + (b > NUM_BISHOPS) * (b - NUM_BISHOPS) + (n > NUM_KNIGHTS) * (n - NUM_KNIGHTS);
+	promoted_P = extra(Q, NUM_QUEENS) + extra(R, NUM_ROOKS) + extra(B, NUM_BISHOPS) + extra(N, NUM_KNIGHTS);
+	promoted_p = extra(q, NUM_QUEENS) + extra(r, NUM_ROOKS) + extra(b, NUM_BISHOPS) + extra(n, NUM_KNIGHTS);
 
 	if ((P + promoted_P) > NUM_PAWNS || (p + promoted_p) > NUM_PAWNS)
 		result |= 1 << error_message(7, "Invalid number of promoted pieces");
@@ -234,9 +249,9 @@ print_chessboard(char *chessboard)
 		for (int f = 0; f < NUM_FILES; f++)
 		{
 			int square = r * NUM_FILES + f;
-			char const *fg_color = IS_WHITE(chessboard[square]) ? FG_DEFAULT : FG_DEFAULT;
-			char const *bg_color = IS_WHITE_SQUARE(square) ? REVERSE : RESET_REVERSE;
-			printf("%s%s%c %s%s", bg_color, fg_color, chessboard[square], RESET_REVERSE, FG_DEFAULT);
+			char const *fg_color = IS_WHITE(chessboard[square]) ? FG_BOLD_CYAN : FG_BOLD_LIGHT_RED;
+			char const *bg_color = IS_WHITE_SQUARE(square) ? BG_WHITE : BG_DEFAULT;
+			printf("%s%s%c %s%s", bg_color, fg_color, chessboard[square], BG_DEFAULT, FG_DEFAULT);
 		}
 		printf("\n");
 	}
@@ -909,7 +924,7 @@ print_stats(long module, int line_feeds)
 			format_commas(mate_results_str, mate_variant.size());
 			printf("Mate solutions: %s   ", mate_results_str);
 			if (mate_variant.size() > 0)
-				printf("move count: %d   ", min_move_count_mate);
+				printf("Move count: %d   ", min_move_count_mate);
 		}
 
 		if (goal_is_draw)
@@ -917,7 +932,7 @@ print_stats(long module, int line_feeds)
 			format_commas(draw_results_str, draw_variant.size());
 			printf("Draw solutions: %s   ", draw_results_str);
 			if (draw_variant.size() > 0)
-				printf("move count: %d   ", min_move_count_draw);
+				printf("Move count: %d   ", min_move_count_draw);
 		}
 
 		if (goal_is_chessboard)
@@ -925,10 +940,10 @@ print_stats(long module, int line_feeds)
 			format_commas(chessboard_results_str, chessboard_variant.size());
 			printf("Chessboard solutions: %s   ", chessboard_results_str);
 			if (chessboard_variant.size() > 0)
-				printf("move count: %d   ", min_move_count_chessboard);
+				printf("Move count: %d   ", min_move_count_chessboard);
 		}
 
-		if ((mate_variant.size() + draw_variant.size() + chessboard_variant.size()) > 0)
+		if (save_results_name && (mate_variant.size() + draw_variant.size() + chessboard_variant.size()) > 0)
 			printf("(See %s)", save_results_name);
 
 		printf("\n");
@@ -1014,7 +1029,7 @@ push_variant(vector<string> &variant_list, game_state *game)
 	char move_list[4000], variant[4000];
 	move_list[0] = 0;
 	get_move_list(move_list, game);
-	output_variant(variant, move_count, move_list, FG_LIGHT_CYAN);
+	output_variant(variant, move_count, move_list, FG_BOLD_CYAN);
 	variant_list.push_back(string(variant));
 }
 
@@ -1085,21 +1100,19 @@ print_results(vector<string> &results, bool goal, char const *title)
 
 void
 erase_bad_variants(vector<string> &variant, bool goal, bool candidate, size_t game_variants, size_t previous_variants,
-				   int *min_move_count, int previous_min_move_count, int move_count, bool erase_children = true)
+				   int *min_move_count, int previous_min_move_count, int move_count, bool finish, bool erase_branch = true)
 {
 	if (goal)
 	{
-		if (candidate)
-		{
-			if (*min_move_count > move_count)
-			{	// This is a shorter variant, thus erase its siblings
-				*min_move_count = move_count;
-				if (previous_variants > game_variants)
-					variant.erase(variant.begin() + game_variants, variant.begin() + previous_variants);
-			}
+		if (finish && candidate && (*min_move_count > move_count))
+		{	// This is a shorter variant, thus erase its siblings
+			*min_move_count = move_count;
+			if (previous_variants > game_variants)
+				variant.erase(variant.begin() + game_variants, variant.begin() + previous_variants);
 		}
-		else if (erase_children)
-		{	// This is a bad variant, thus erase its children
+
+		if (!finish && !candidate && erase_branch)
+		{	// This is a bad variant, thus erase its whole branch
 			*min_move_count = previous_min_move_count;
 			if (variant.size() > previous_variants)
 				variant.erase(variant.begin() + previous_variants, variant.end());
@@ -1170,14 +1183,14 @@ get_all_valid_moves_from_state(game_state *game)
 			if (!FINISH(result))
 				result = get_all_valid_moves_from_state(&next); // Go recursively until variant reaches an end
 
-			game_mate_candidate |= mate_candidate = (goal_is_mate && MATE(result) && (color == initial_side_to_move));
+			game_mate_candidate |= mate_candidate = (goal_is_mate && MATE(result) && ((color == initial_side_to_move) || !FINISH(result)));
 			game_draw_candidate |= draw_candidate = (goal_is_draw && DRAW(result));
-			game_chessboard_candidate |= chessboard_candidate = (CHESSBOARD(result) && (color == initial_side_to_move));
+			game_chessboard_candidate |= chessboard_candidate = (CHESSBOARD(result) && ((color == initial_side_to_move) || !FINISH(result)));
 
 			if (FINISH(result))
 			{
 				bool candidate = (mate_candidate || draw_candidate || chessboard_candidate);
-				char const *highlight = candidate ? FG_LIGHT_YELLOW : NULL;
+				char const *highlight = candidate ? FG_BOLD_LIGHT_RED : NULL;
 
 				if (mate_candidate)
 					push_variant(mate_variant, &next);
@@ -1189,19 +1202,19 @@ get_all_valid_moves_from_state(game_state *game)
 					push_variant(chessboard_variant, &next);
 
 				if ((candidate && verbose >= 1) || (verbose >= 2))
-					print_variant(NULL, game, verbose, highlight);
+					print_variant(NULL, &next, verbose, highlight);
 			}
 
 			if (color == initial_side_to_move)
 			{
 				erase_bad_variants(mate_variant, goal_is_mate, mate_candidate, game_mate_variants, previous_mate_variants,
-								   &min_move_count_mate, previous_min_move_count_mate, MOVE_COUNT_MATE(result));
+								   &min_move_count_mate, previous_min_move_count_mate, MOVE_COUNT_MATE(result), FINISH(result));
 
 				erase_bad_variants(draw_variant, goal_is_draw, draw_candidate, game_draw_variants, previous_draw_variants,
-								   &min_move_count_draw, previous_min_move_count_draw, MOVE_COUNT_DRAW(result));
+								   &min_move_count_draw, previous_min_move_count_draw, MOVE_COUNT_DRAW(result), FINISH(result));
 
 				erase_bad_variants(chessboard_variant, goal_is_chessboard, chessboard_candidate, game_chessboard_variants, previous_chessboard_variants,
-								   &min_move_count_chessboard, previous_min_move_count_chessboard, MOVE_COUNT_CHESSBOARD(result), false);
+								   &min_move_count_chessboard, previous_min_move_count_chessboard, MOVE_COUNT_CHESSBOARD(result), FINISH(result), false);
 			}
 			else if (!mate_candidate && !draw_candidate && !goal_is_chessboard)
 				return 0; // Interrupt branch search if there is any variant that leads to a non-goal finish
@@ -1218,9 +1231,9 @@ get_all_valid_moves_from_state(game_state *game)
 
 
 void
-signal_handler(int signum )
+signal_handler(int signum)
 {
-	if (signum == SIGINT)
+	if (signum == SIGQUIT)
 	{
 		print_results(mate_variant, goal_is_mate, "Mate");
 		print_results(draw_variant, goal_is_draw, "Draw");
@@ -1378,7 +1391,7 @@ move_restriction_Pb_Pf_capture(piece_move *move)
 int
 main(int argc, char **argv)
 {
-	signal(SIGINT, signal_handler); // Ctrl+C
+	signal(SIGQUIT, signal_handler); // Ctrl+\ //
 	fen_piece_placement(initial_chessboard, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR");
 
 	if (argc == 1 || strcmp(argv[1], "-h") == 0)
