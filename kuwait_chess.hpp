@@ -74,6 +74,8 @@
 #define MOVE_COUNT_DRAW(result)			(((result) & 0xFFFF00000000) >> 32)
 #define MOVE_COUNT_CHESSBOARD(result)	(((result) & 0xFFFF000000000000) >> 48)
 
+enum stats_type {PERIODIC, TEMPORARY, FINAL};
+
 struct piece_move
 {
 	char moving_piece;

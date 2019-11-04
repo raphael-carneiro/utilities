@@ -39,6 +39,7 @@ int  initial_side_to_move = WHITE;
 char initial_chessboard[NUM_SQUARES];
 char final_chessboard[NUM_SQUARES];
 long variants_analyzed  = 0;
+char last_variant_analyzed[4000] = {0};
 int  min_move_count_mate = 9999;
 int  min_move_count_draw = 9999;
 int  min_move_count_chessboard = 9999;
@@ -47,7 +48,7 @@ vector<string> mate_variant;
 vector<string> draw_variant;
 vector<string> chessboard_variant;
 FILE *save_results = NULL;
-char const *save_results_name = NULL; // "kuwait_chess.txt";
+char const *save_results_name = "kuwait_chess.txt";
 int verbose = 1;
 
 #define NORMAL				"\e[0m"
@@ -905,52 +906,63 @@ format_commas(char *formatted_number, long num)
 
 
 void
-print_stats(long module, int line_feeds)
+print_stats(stats_type type)
 {
-	if (module == 0)
-		module = 1;
+	char stats_line[2000], variants_analyzed_str[80], mate_results_str[80], draw_results_str[80], chessboard_results_str[80];
+	char *text = stats_line;
+	int len = 0;
 
-	for (int i = 0; i < line_feeds; i++)
-		printf("\n");
+	if (type == TEMPORARY)
+		sprintf(text += len, "\nTemporary results:\n%n", &len);
+	else if (type == FINAL)
+		sprintf(text += len, "\n%n", &len);
 
-	if (variants_analyzed % module == 0)
+	format_commas(variants_analyzed_str, variants_analyzed);
+	sprintf(text += len, "Variants analyzed: %s   %n", variants_analyzed_str, &len);
+
+	if (goal_is_mate)
 	{
-		char variants_analyzed_str[80], mate_results_str[80], draw_results_str[80], chessboard_results_str[80];
-		format_commas(variants_analyzed_str, variants_analyzed);
-		printf("Variants analyzed: %s   ", variants_analyzed_str);
-
-		if (goal_is_mate)
-		{
-			format_commas(mate_results_str, mate_variant.size());
-			printf("Mate solutions: %s   ", mate_results_str);
-			if (mate_variant.size() > 0)
-				printf("Move count: %d   ", min_move_count_mate);
-		}
-
-		if (goal_is_draw)
-		{
-			format_commas(draw_results_str, draw_variant.size());
-			printf("Draw solutions: %s   ", draw_results_str);
-			if (draw_variant.size() > 0)
-				printf("Move count: %d   ", min_move_count_draw);
-		}
-
-		if (goal_is_chessboard)
-		{
-			format_commas(chessboard_results_str, chessboard_variant.size());
-			printf("Chessboard solutions: %s   ", chessboard_results_str);
-			if (chessboard_variant.size() > 0)
-				printf("Move count: %d   ", min_move_count_chessboard);
-		}
-
-		if (save_results_name && (mate_variant.size() + draw_variant.size() + chessboard_variant.size()) > 0)
-			printf("(See %s)", save_results_name);
-
-		printf("\n");
+		format_commas(mate_results_str, mate_variant.size());
+		sprintf(text += len, "Mate solutions: %s   %n", mate_results_str, &len);
+		if (mate_variant.size() > 0)
+			sprintf(text += len, "Move count: %d   %n", min_move_count_mate, &len);
 	}
 
-	for (int i = 0; i < line_feeds; i++)
-		printf("\n");
+	if (goal_is_draw)
+	{
+		format_commas(draw_results_str, draw_variant.size());
+		sprintf(text += len, "Draw solutions: %s   %n", draw_results_str, &len);
+		if (draw_variant.size() > 0)
+			sprintf(text += len, "Move count: %d   %n", min_move_count_draw, &len);
+	}
+
+	if (goal_is_chessboard)
+	{
+		format_commas(chessboard_results_str, chessboard_variant.size());
+		sprintf(text += len, "Chessboard solutions: %s   %n", chessboard_results_str, &len);
+		if (chessboard_variant.size() > 0)
+			sprintf(text += len, "Move count: %d   %n", min_move_count_chessboard, &len);
+	}
+
+	if (type == PERIODIC || type == TEMPORARY)
+		sprintf(text += len, "Last variant: %s   %n", last_variant_analyzed, &len);
+
+	if (type == FINAL && save_results_name && (mate_variant.size() + draw_variant.size() + chessboard_variant.size()) > 0)
+		sprintf(text += len, "(See %s)%n", save_results_name, &len);
+
+	sprintf(text += len, "\n%n", &len);
+
+	if (type == TEMPORARY || type == FINAL)
+		sprintf(text += len, "\n%n", &len);
+
+	printf("%s", stats_line);
+
+	if (type == FINAL && save_results_name)
+	{
+		save_results = fopen(save_results_name, "a");
+		fprintf(save_results, "%s", stats_line);
+		fclose(save_results);
+	}
 }
 
 
@@ -967,22 +979,18 @@ output_variant(char *print_line, int move_count, char const *move_list, char con
 
 
 void
-print_variant(char const *results_name, game_state *game, int verbose, char const *highlight = NULL)
+print_variant(game_state *game, int verbose = 0, char const *highlight = NULL)
 {
-	int move_count = (game->side_to_move == WHITE) ? (game->full_move_counter - 1) : game->full_move_counter;
-	char move_list[4000], print_line[4000];
-	move_list[0] = 0;
-	get_move_list(move_list, game);
-
-	if (results_name)
-	{
-		save_results = fopen(results_name, "a");
-		fprintf(save_results, "%s\n", output_variant(print_line, move_count, move_list));
-		fclose(save_results);
-	}
+	last_variant_analyzed[0] = 0;
+	get_move_list(last_variant_analyzed, game);
 
 	if (verbose)
-		printf("%s\n", output_variant(print_line, move_count, move_list, highlight));
+	{
+		char print_line[4000];
+		int move_count = (game->side_to_move == WHITE) ? (game->full_move_counter - 1) : game->full_move_counter;
+		output_variant(print_line, move_count, last_variant_analyzed, highlight);
+		printf("%s\n", print_line);
+	}
 }
 
 
@@ -1029,7 +1037,7 @@ push_variant(vector<string> &variant_list, game_state *game)
 	char move_list[4000], variant[4000];
 	move_list[0] = 0;
 	get_move_list(move_list, game);
-	output_variant(variant, move_count, move_list, FG_BOLD_CYAN);
+	output_variant(variant, move_count, move_list, NULL);
 	variant_list.push_back(string(variant));
 }
 
@@ -1043,17 +1051,20 @@ finish_variant(game_state *game, bool mate = false, bool stalemate = false)
 	bool finish = (mate || draw || chessboard || max_moves);
 	int  move_count = (game->side_to_move == WHITE) ? (game->full_move_counter - 1) : game->full_move_counter;
 
-	finish |= ((!goal_is_mate       || move_count > min_move_count_mate) &&
-			   (!goal_is_draw       || move_count > min_move_count_draw) &&
-			   (!goal_is_chessboard || move_count > min_move_count_chessboard));
+	finish |= ((!goal_is_mate       || game->full_move_counter > min_move_count_mate) &&
+			   (!goal_is_draw       || game->full_move_counter > min_move_count_draw) &&
+			   (!goal_is_chessboard || game->full_move_counter > min_move_count_chessboard));
 
 	if (!finish && (verbose >= 3))
-		print_variant(NULL, game, verbose);
+		print_variant(game, verbose);
+	else
+		print_variant(game);
 
 	if (finish)
 	{
 		variants_analyzed++;
-		print_stats(1000000, 0);
+		if (variants_analyzed % 1000000 == 0)
+			print_stats(PERIODIC);
 	}
 
 	long result = push_result_forward(finish, mate, draw, chessboard, move_count);
@@ -1085,15 +1096,27 @@ finish_mate_or_stalemate(game_state *game)
 
 
 void
-print_results(vector<string> &results, bool goal, char const *title)
+print_results(vector<string> &results, bool goal, char const *title, stats_type type)
 {
-	if (goal)
+	if (goal && results.size() > 0)
 	{
-		if (results.size() > 0)
-			printf("\n%s results:\n\n", title);
+		printf("\n%s results:\n\n", title);
+
+		if (type == FINAL && save_results_name)
+		{
+			save_results = fopen(save_results_name, "a");
+			fprintf(save_results, "\n%s results:\n\n", title);
+		}
 
 		for (int i = 0; i < results.size(); i++)
-			printf("%s\n", results.at(i).c_str());
+		{
+			printf("%s%s%s\n", FG_BOLD_CYAN, results.at(i).c_str(), FG_DEFAULT);
+			if (type == FINAL && save_results_name)
+				fprintf(save_results, "%s\n", results.at(i).c_str());
+		}
+
+		if (type == FINAL && save_results_name)
+			fclose(save_results);
 	}
 }
 
@@ -1202,7 +1225,7 @@ get_all_valid_moves_from_state(game_state *game)
 					push_variant(chessboard_variant, &next);
 
 				if ((candidate && verbose >= 1) || (verbose >= 2))
-					print_variant(NULL, &next, verbose, highlight);
+					print_variant(&next, verbose, highlight);
 			}
 
 			if (color == initial_side_to_move)
@@ -1235,10 +1258,9 @@ signal_handler(int signum)
 {
 	if (signum == SIGQUIT)
 	{
-		print_results(mate_variant, goal_is_mate, "Mate");
-		print_results(draw_variant, goal_is_draw, "Draw");
-		printf("\nProvisory results after:\n");
-		print_stats(1, 1);
+		print_results(mate_variant, goal_is_mate, "Mate", TEMPORARY);
+		print_results(draw_variant, goal_is_draw, "Draw", TEMPORARY);
+		print_stats(TEMPORARY);
 	}
 	else
 		exit(signum);
@@ -1391,12 +1413,10 @@ move_restriction_Pb_Pf_capture(piece_move *move)
 int
 main(int argc, char **argv)
 {
-	signal(SIGQUIT, signal_handler); // Ctrl+\ //
-	fen_piece_placement(initial_chessboard, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR");
-
 	if (argc == 1 || strcmp(argv[1], "-h") == 0)
 		usage(-1);
 
+	fen_piece_placement(initial_chessboard, "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR");
 	read_parameters(argc, argv);
 	set_game_state(&initial_game, initial_chessboard, initial_side_to_move);
 	secure_file(save_results_name);
@@ -1408,11 +1428,13 @@ main(int argc, char **argv)
 		max_full_move_count = 34;
 	}
 
+	signal(SIGQUIT, signal_handler);
+	printf("\nPress Ctrl+\\ to display temporary results\n");
+
 	get_all_valid_moves_from_state(&initial_game);
 
-	print_results(mate_variant, goal_is_mate, "Mate");
-	print_results(draw_variant, goal_is_draw, "Draw");
-
-	print_stats(1, 1);
+	print_results(mate_variant, goal_is_mate, "Mate", FINAL);
+	print_results(draw_variant, goal_is_draw, "Draw", FINAL);
+	print_stats(FINAL);
 	return 0;
 }
