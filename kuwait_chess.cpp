@@ -26,6 +26,7 @@
 #include <cstring>
 #include <vector>
 #include <csignal>
+#include <bits/stdc++.h>
 
 using namespace std;
 
@@ -278,6 +279,7 @@ default_move(piece_move *move, char piece, int square)
 	move->check = false;
 	move->mate = false;
 	move->draw = false;
+	move->next_valid_moves = 0;
 }
 
 
@@ -769,7 +771,7 @@ forced_draw(game_state *game)
 
 
 void
-move_disambiguation(char *chessboard, piece_move *move)
+move_disambiguation(piece_move *move, char *chessboard)
 {
 	char piece = move->moving_piece;
 
@@ -795,6 +797,70 @@ move_disambiguation(char *chessboard, piece_move *move)
 				return;
 		}
 	}
+}
+
+
+bool
+is_valid_piece(char piece, int square, int color)
+{
+	if (IS_EMPTY(piece) || (color != COLOR(piece)))
+		return false;
+
+	if ((*special_piece_restriction)(piece, square)) // Problem specifics
+		return false;
+
+	return true;
+}
+
+
+bool
+is_valid_move(piece_move *move, game_state *game)
+{
+	if ((*special_move_restriction)(move)) // Problem specifics
+		return false;
+
+	update_chessboard(game->chessboard, game->previous->chessboard, move);
+
+	if (king_in_check(game->chessboard, game->previous->side_to_move)) // Illegal move: Let own king in check
+		return false;
+
+	if (castling_under_attack(game->chessboard, move)) // Illegal move: Castling under attack
+		return false;
+
+	return true;
+}
+
+
+int
+get_valid_move_count(game_state *game)
+{
+	piece_move next_move, legal_moves[MAX_LEGAL_MOVES];
+	game_state next = *game;
+	next.last_move = &next_move;
+	next.side_to_move = game->side_to_move == WHITE ? BLACK : WHITE;
+	next.full_move_counter += game->side_to_move == WHITE ? 0 : 1;
+	next.previous = game;
+
+	int color = game->side_to_move;
+	int valid_moves = 0;
+
+	for (int square = 0; square < NUM_SQUARES; square++)
+	{
+		char piece = game->chessboard[square];
+		if (is_valid_piece(piece, square, color))
+		{
+			int legal_move_count = get_legal_moves(legal_moves, game, piece, square);
+
+			for (int i = 0; i < legal_move_count; i++)
+			{
+				next_move = legal_moves[i];
+				if (is_valid_move(&next_move, &next))
+					valid_moves++;
+			}
+		}
+	}
+
+	return valid_moves;
 }
 
 
@@ -1043,7 +1109,7 @@ push_variant(vector<string> &variant_list, game_state *game)
 
 
 long
-finish_variant(game_state *game, bool mate = false, bool stalemate = false)
+finish_variant(game_state *game, bool print = true, bool mate = false, bool stalemate = false)
 {
 	bool draw = (stalemate || forced_draw(game));
 	bool chessboard = (goal_chessboard_achieved(game, final_chessboard) && (game->side_to_move == initial_side_to_move));
@@ -1055,16 +1121,19 @@ finish_variant(game_state *game, bool mate = false, bool stalemate = false)
 			   (!goal_is_draw       || game->full_move_counter > min_move_count_draw) &&
 			   (!goal_is_chessboard || game->full_move_counter > min_move_count_chessboard));
 
-	if (!finish && (verbose >= 3))
-		print_variant(game, verbose);
-	else
-		print_variant(game);
-
-	if (finish)
+	if (print)
 	{
-		variants_analyzed++;
-		if (variants_analyzed % 1000000 == 0)
-			print_stats(PERIODIC);
+		if (!finish && (verbose >= 3))
+			print_variant(game, verbose);
+		else
+			print_variant(game);
+
+		if (finish)
+		{
+			variants_analyzed++;
+			if (variants_analyzed % 1000000 == 0)
+				print_stats(PERIODIC);
+		}
 	}
 
 	long result = push_result_forward(finish, mate, draw, chessboard, move_count);
@@ -1089,7 +1158,7 @@ finish_mate_or_stalemate(game_state *game)
 		game->last_move->draw = stalemate;
 	}
 
-	long result = finish_variant(game, mate, stalemate);
+	long result = finish_variant(game, true, mate, stalemate);
 
 	return result;
 }
@@ -1144,6 +1213,13 @@ erase_bad_variants(vector<string> &variant, bool goal, bool candidate, size_t ga
 }
 
 
+bool
+move_analysis_order(piece_move move1, piece_move move2)
+{
+    return (move1.next_valid_moves < move2.next_valid_moves);
+}
+
+
 long
 get_all_valid_moves_from_state(game_state *game)
 {
@@ -1162,89 +1238,87 @@ get_all_valid_moves_from_state(game_state *game)
 	next.previous = game;
 
 	int color = game->side_to_move;
-	int valid_moves = 0;
+	vector<piece_move> valid_moves;
 
 	for (int square = 0; square < NUM_SQUARES; square++)
 	{
 		char piece = game->chessboard[square];
-		if (IS_EMPTY(piece) || (color != COLOR(piece)))
-			continue;
-
-		if ((*special_piece_restriction)(piece, square)) // Problem specifics
-			continue;
-
-		int legal_move_count = get_legal_moves(legal_moves, game, piece, square);
-		for (int i = 0; i < legal_move_count; i++)
+		if (is_valid_piece(piece, square, color))
 		{
-			next_move = legal_moves[i];
+			int legal_move_count = get_legal_moves(legal_moves, game, piece, square);
 
-			if ((*special_move_restriction)(&next_move)) // Problem specifics
-				continue;
-
-			update_chessboard(next.chessboard, game->chessboard, &next_move);
-
-			if (king_in_check(next.chessboard, color)) // Illegal move: Let own king in check
-				continue;
-
-			if (castling_under_attack(next.chessboard, &next_move)) // Illegal move: Castling under attack
-				continue;
-
-			// At this point there is a valid move ready for analysis
-			valid_moves++;
-			update_state(&next);
-			move_disambiguation(game->chessboard, &next_move);
-			next_move.check = king_in_check(next.chessboard, next.side_to_move);
-
-			size_t previous_mate_variants = mate_variant.size();
-			size_t previous_draw_variants = draw_variant.size();
-			size_t previous_chessboard_variants = chessboard_variant.size();
-			int previous_min_move_count_mate = min_move_count_mate;
-			int previous_min_move_count_draw = min_move_count_draw;
-			int previous_min_move_count_chessboard = min_move_count_chessboard;
-
-			result = finish_variant(&next);
-			if (!FINISH(result))
-				result = get_all_valid_moves_from_state(&next); // Go recursively until variant reaches an end
-
-			game_mate_candidate |= mate_candidate = (goal_is_mate && MATE(result) && ((color == initial_side_to_move) || !FINISH(result)));
-			game_draw_candidate |= draw_candidate = (goal_is_draw && DRAW(result));
-			game_chessboard_candidate |= chessboard_candidate = (CHESSBOARD(result) && ((color == initial_side_to_move) || !FINISH(result)));
-
-			if (FINISH(result))
+			for (int i = 0; i < legal_move_count; i++)
 			{
-				bool candidate = (mate_candidate || draw_candidate || chessboard_candidate);
-				char const *highlight = candidate ? FG_BOLD_LIGHT_RED : NULL;
-
-				if (mate_candidate)
-					push_variant(mate_variant, &next);
-
-				if (draw_candidate)
-					push_variant(draw_variant, &next);
-
-				if (chessboard_candidate)
-					push_variant(chessboard_variant, &next);
-
-				if ((candidate && verbose >= 1) || (verbose >= 2))
-					print_variant(&next, verbose, highlight);
+				next_move = legal_moves[i];
+				if (is_valid_move(&next_move, &next))
+				{
+					move_disambiguation(&next_move, game->chessboard);
+					next_move.check = king_in_check(next.chessboard, next.side_to_move);
+					result = finish_variant(&next, false);
+					next_move.next_valid_moves = FINISH(result) ? 0 : get_valid_move_count(&next);
+					valid_moves.push_back(next_move);
+				}
 			}
-
-			if (color == initial_side_to_move)
-			{
-				erase_bad_variants(mate_variant, goal_is_mate, mate_candidate, game_mate_variants, previous_mate_variants,
-								   &min_move_count_mate, previous_min_move_count_mate, MOVE_COUNT_MATE(result), FINISH(result));
-
-				erase_bad_variants(draw_variant, goal_is_draw, draw_candidate, game_draw_variants, previous_draw_variants,
-								   &min_move_count_draw, previous_min_move_count_draw, MOVE_COUNT_DRAW(result), FINISH(result));
-
-				erase_bad_variants(chessboard_variant, goal_is_chessboard, chessboard_candidate, game_chessboard_variants, previous_chessboard_variants,
-								   &min_move_count_chessboard, previous_min_move_count_chessboard, MOVE_COUNT_CHESSBOARD(result), FINISH(result), false);
-			}
-			else if (!mate_candidate && !draw_candidate && !goal_is_chessboard)
-				return 0; // Interrupt branch search if there is any variant that leads to a non-goal finish
 		}
 	}
-	// At this point all variants of a given game-state were analyzed
-	if (valid_moves == 0)
+
+	sort(valid_moves.begin(), valid_moves.end(), move_analysis_order);
+
+	for (int i = 0; i < valid_moves.size(); i++)
+	{
+		next_move = valid_moves.at(i);
+		update_chessboard(next.chessboard, game->chessboard, &next_move);
+		update_state(&next);
+
+		size_t previous_mate_variants = mate_variant.size();
+		size_t previous_draw_variants = draw_variant.size();
+		size_t previous_chessboard_variants = chessboard_variant.size();
+		int previous_min_move_count_mate = min_move_count_mate;
+		int previous_min_move_count_draw = min_move_count_draw;
+		int previous_min_move_count_chessboard = min_move_count_chessboard;
+
+		result = finish_variant(&next, true);
+		if (!FINISH(result))
+			result = get_all_valid_moves_from_state(&next); // Go recursively until variant reaches an end
+
+		game_mate_candidate |= mate_candidate = (goal_is_mate && MATE(result) && ((color == initial_side_to_move) || !FINISH(result)));
+		game_draw_candidate |= draw_candidate = (goal_is_draw && DRAW(result));
+		game_chessboard_candidate |= chessboard_candidate = (CHESSBOARD(result) && ((color == initial_side_to_move) || !FINISH(result)));
+
+		if (FINISH(result))
+		{
+			bool candidate = (mate_candidate || draw_candidate || chessboard_candidate);
+			char const *highlight = candidate ? FG_BOLD_LIGHT_RED : NULL;
+
+			if (mate_candidate)
+				push_variant(mate_variant, &next);
+
+			if (draw_candidate)
+				push_variant(draw_variant, &next);
+
+			if (chessboard_candidate)
+				push_variant(chessboard_variant, &next);
+
+			if ((candidate && verbose >= 1) || (verbose >= 2))
+				print_variant(&next, verbose, highlight);
+		}
+
+		if (color == initial_side_to_move)
+		{
+			erase_bad_variants(mate_variant, goal_is_mate, mate_candidate, game_mate_variants, previous_mate_variants,
+							   &min_move_count_mate, previous_min_move_count_mate, MOVE_COUNT_MATE(result), FINISH(result));
+
+			erase_bad_variants(draw_variant, goal_is_draw, draw_candidate, game_draw_variants, previous_draw_variants,
+							   &min_move_count_draw, previous_min_move_count_draw, MOVE_COUNT_DRAW(result), FINISH(result));
+
+			erase_bad_variants(chessboard_variant, goal_is_chessboard, chessboard_candidate, game_chessboard_variants, previous_chessboard_variants,
+							   &min_move_count_chessboard, previous_min_move_count_chessboard, MOVE_COUNT_CHESSBOARD(result), FINISH(result), false);
+		}
+		else if (!mate_candidate && !draw_candidate && !goal_is_chessboard)
+			return 0; // Interrupt branch search if there is any variant that leads to a non-goal finish
+	}
+
+	if (valid_moves.size() == 0)
 		result = finish_mate_or_stalemate(game);
 	else
 		result = pull_result_backward(game_mate_candidate, game_draw_candidate, game_chessboard_candidate,

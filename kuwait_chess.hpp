@@ -8,35 +8,36 @@
 #ifndef KUWAIT_CHESS_HPP_
 #define KUWAIT_CHESS_HPP_
 
-#define NUM_FILES		 8
-#define NUM_RANKS		 8
-#define NUM_SQUARES		64 // (NUM_FILES * NUM_RANKS)
-#define NUM_PAWNS		 8
-#define NUM_KNIGHTS		 2
-#define NUM_BISHOPS		 2
-#define NUM_ROOKS		 2
-#define NUM_QUEENS		 1
-#define NUM_KINGS		 1
-#define MAX_LEGAL_MOVES	27 // Legal moves for a queen on a central square of an empty chessboard
+#define NUM_FILES		  8
+#define NUM_RANKS		  8
+#define NUM_SQUARES		 64 // (NUM_FILES * NUM_RANKS)
+#define NUM_PAWNS		  8
+#define NUM_KNIGHTS		  2
+#define NUM_BISHOPS		  2
+#define NUM_ROOKS		  2
+#define NUM_QUEENS		  1
+#define NUM_KINGS		  1
+#define MAX_LEGAL_PIECES 16
+#define MAX_LEGAL_MOVES	 27 // Number of legal moves for a queen on a central square of an empty chessboard
 
-#define WHITE			 0
-#define BLACK			 1
-#define	EMPTY			' '
-#define WHITE_PAWN		'P'
-#define WHITE_KNIGHT	'N'
-#define WHITE_BISHOP	'B'
-#define WHITE_ROOK		'R'
-#define WHITE_QUEEN		'Q'
-#define WHITE_KING		'K'
-#define BLACK_PAWN		'p'
-#define BLACK_KNIGHT	'n'
-#define BLACK_BISHOP	'b'
-#define BLACK_ROOK		'r'
-#define BLACK_QUEEN		'q'
-#define BLACK_KING		'k'
-#define WHITE_PIECES	"PNBRQK"
-#define BLACK_PIECES	"pnbrqk"
-#define RANK_SEPARATOR	'/'
+#define WHITE			  0
+#define BLACK			  1
+#define	EMPTY			 ' '
+#define WHITE_PAWN		 'P'
+#define WHITE_KNIGHT	 'N'
+#define WHITE_BISHOP	 'B'
+#define WHITE_ROOK		 'R'
+#define WHITE_QUEEN		 'Q'
+#define WHITE_KING		 'K'
+#define BLACK_PAWN		 'p'
+#define BLACK_KNIGHT	 'n'
+#define BLACK_BISHOP	 'b'
+#define BLACK_ROOK		 'r'
+#define BLACK_QUEEN		 'q'
+#define BLACK_KING		 'k'
+#define WHITE_PIECES	 "PNBRQK"
+#define BLACK_PIECES	 "pnbrqk"
+#define RANK_SEPARATOR	 '/'
 
 #define COLOR(piece)		(islower(piece) != 0)
 #define IS_WHITE(piece)		(strchr(WHITE_PIECES, (piece)) != NULL)
@@ -89,6 +90,7 @@ struct piece_move
 	bool check;
 	bool mate;
 	bool draw;
+	int  next_valid_moves;
 };
 
 struct game_state
