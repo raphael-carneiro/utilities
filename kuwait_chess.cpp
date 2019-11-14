@@ -1047,7 +1047,7 @@ push_variant(vector<string> &variant_list, game_state *game)
 long
 finish_variant(game_state *game, bool print = true, bool mate = false, bool stalemate = false)
 {
-	bool draw = (stalemate || forced_draw(game));
+	bool draw = mate ? false : (stalemate || forced_draw(game));
 	bool chessboard = (goal_chessboard_achieved(game, final_chessboard) && (game->side_to_move == initial_side_to_move));
 	bool max_moves  = ((game->full_move_counter > max_full_move_count)  && (game->side_to_move == initial_side_to_move));
 	bool finish = (mate || draw || chessboard || max_moves);
@@ -1169,6 +1169,7 @@ get_valid_moves(vector<piece_move> &valid_moves, game_state *game)
 {
 	piece_move next_move, legal_moves[MAX_LEGAL_MOVES];
 	int color = game->previous->side_to_move;
+	long result;
 
 	for (int square = 0; square < NUM_SQUARES; square++)
 	{
@@ -1185,20 +1186,19 @@ get_valid_moves(vector<piece_move> &valid_moves, game_state *game)
 				{
 					move_disambiguation(&next_move, game->previous->chessboard);
 					next_move.check = king_in_check(game->chessboard, game->side_to_move);
-					long result = finish_variant(game, false);
-					next_move.draw = DRAW(result);
-
-					if (!FINISH(result))
+					next_move.next_valid_moves = get_valid_move_count(game);
+					if (next_move.next_valid_moves == 0)
 					{
-						next_move.next_valid_moves = get_valid_move_count(game);
-
-						if (next_move.next_valid_moves == 0)
-						{
-							next_move.mate =  next_move.check;
-							next_move.draw = !next_move.check;  // Stalemate
-						}
+						next_move.mate =  next_move.check;
+						next_move.draw = !next_move.check;  // Stalemate
 					}
-
+					else
+					{
+						result = finish_variant(game, false);
+						next_move.draw = DRAW(result);
+						if (FINISH(result))
+							next_move.next_valid_moves = 0;
+					}
 					valid_moves.push_back(next_move);
 				}
 			}
